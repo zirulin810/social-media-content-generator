@@ -114,9 +114,32 @@ python scripts\smoke_test.py     # 或雙擊「測試Gemini.bat」
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium        # 第一次要裝瀏覽器
-出圖.bat                            # 或 python scripts\render_sample.py b 1x1
 ```
+
+**就這樣。不用裝瀏覽器。**
+
+| 雙擊 | 做什麼 |
+| --- | --- |
+| `檢查瀏覽器.bat` | 看這台電腦有哪些瀏覽器可用，以及 Playwright 下載了多少沒用的東西 |
+| `清除下載的瀏覽器.bat` | 清掉 Playwright 下載的那些（我們用不到） |
+| `出圖.bat` | 用 Kaggle 那篇的真實內容出一整套 PNG（A/B 兩個主題） |
+| `測試拆卡.bat` | 開真的瀏覽器，驗證「該拆的有拆、編號有接對、步驟沒掉」 |
+
+### 為什麼不用裝瀏覽器
+
+**因為你已經有了。** Windows 內建 Edge（Chromium 核心），排版能力跟 Playwright 自帶的那顆一模一樣。
+`src/render/browser.py` 直接驅動系統的 Edge / Chrome，**一個位元組都不下載**。
+
+Playwright 預設會自己下載一顆，理由是「保證你我的渲染結果一模一樣」。那個保證對團隊／CI 有價值，
+對一個人的專案沒有——代價卻是：
+
+- 每次 playwright 升版就**重載一組**，舊的不會自己刪，堆在 `%LOCALAPPDATA%\ms-playwright\`
+- `playwright install`（**不帶參數**）會裝 Chromium + Firefox + WebKit **三顆**，快 1GB。我們只用一顆
+
+**找不到系統瀏覽器就報錯，不偷偷下載。** 真的要用下載的那顆，得明講：`set CARD_BROWSER=bundled`。
+
+> 這是一個通則：**AI 傾向為了保險而重複安裝你已經有的東西**（瀏覽器、Docker、版本管理器、字體）。
+> 那樣它不會錯，但成本是你在付。
 
 **塞不下就拆卡，不砍內容。** 字級由 `templates/card.js` 二分搜尋（34–76px）；
 連下限都塞不下 → `layout.py` 把卡拆開（步驟卡切段、重點卡從句號切），編號續接、標上 1/2、2/2。

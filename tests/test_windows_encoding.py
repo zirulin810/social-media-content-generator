@@ -22,12 +22,15 @@ Python 檔不受影響：Python 3 預設就用 UTF-8 讀原始碼。
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from src.paths import PROJECT_ROOT
 
 # 這些檔案由 Windows 原生工具（cmd / pip）讀，它們不懂 UTF-8
-ASCII_ONLY = sorted(PROJECT_ROOT.glob("*.bat")) + [PROJECT_ROOT / "requirements.txt"]
+BATS = sorted(PROJECT_ROOT.glob("*.bat")) + sorted((PROJECT_ROOT / "tools").glob("*.bat"))
+ASCII_ONLY = BATS + [PROJECT_ROOT / "requirements.txt"]
 
 
 def test_the_guarded_files_exist() -> None:
@@ -48,3 +51,28 @@ def test_content_is_pure_ascii(f) -> None:
 def test_no_bom(f) -> None:
     """BOM 會讓 cmd 把第一行當成亂碼，也會讓 pip 讀到怪東西。"""
     assert not f.read_bytes().startswith(b"\xef\xbb\xbf"), f"{f.name} 有 UTF-8 BOM"
+
+
+def test_every_bat_resolves_python_through_one_place() -> None:
+    """**「我明明跑了安裝.bat」——是的，只是裝到另一個 Python 去了。**
+
+    2026-07-14：`安裝.bat` 直接叫 `python`（系統 Python），
+    但執行用的 .bat 走 `.venv\\Scripts\\python.exe`。
+    套件裝進 A，程式跑在 B，於是「裝好了卻說找不到」。
+
+    十個 .bat 裡有五個不一致——**同一個決定散在十個地方，遲早走散。**
+    現在只有 `_py.bat` 一個地方決定「用哪個 python」。
+    """
+    bats = [p for p in BATS if p.name != "_py.bat"]
+    assert bats, "找不到任何 .bat"
+
+    offenders = []
+    for b in bats:
+        text = b.read_text(encoding="ascii")
+        runs_python = re.search(r"^\s*(\"?python|.*python\.exe)", text, re.M | re.I)
+        if runs_python and "_py.bat" not in text:
+            offenders.append(b.name)
+    assert not offenders, f"這些 .bat 自己決定用哪個 python，沒走 _py.bat：{offenders}"
+
+    helper = (PROJECT_ROOT / "_py.bat").read_text(encoding="ascii")
+    assert ".venv" in helper and "python" in helper

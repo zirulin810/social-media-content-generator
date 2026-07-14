@@ -26,6 +26,23 @@ def _clone(card: dict[str, Any], **over: Any) -> dict[str, Any]:
     return {**card, **over}
 
 
+def _balanced(items: list[Any], per: int) -> list[list[Any]]:
+    """把 items 平均分成 ceil(n/per) 份，而不是「切滿再切剩下的」。
+
+    6 步、每張最多 4 步 → 貪婪切法給 [4, 2]，平均切法給 [3, 3]。
+    後者好看得多——最後一張只剩一步的卡片，看起來就像做壞了。
+    """
+    n = len(items)
+    k = -(-n // per)                       # ceil
+    base, extra = divmod(n, k)
+    out, i = [], 0
+    for j in range(k):
+        size = base + (1 if j < extra else 0)
+        out.append(items[i : i + size])
+        i += size
+    return out
+
+
 def _split_steps(card: dict[str, Any], fits: FitFn) -> list[dict[str, Any]]:
     """步驟卡：從中間切開，編號續接。
 
@@ -36,9 +53,10 @@ def _split_steps(card: dict[str, Any], fits: FitFn) -> list[dict[str, Any]]:
     if len(steps) < 2:
         return [card]  # 只有一步還塞不下 → 那是文字本身太長，拆不動
 
-    # 找「每張最多幾步」——從多到少試，取第一個全部都塞得下的
+    # 找「每張最多幾步」——從多到少試，取第一個全部都讀得舒服的。
+    # 從多到少 = 用最少的卡片數。
     for per in range(len(steps) - 1, 0, -1):
-        chunks = [steps[i : i + per] for i in range(0, len(steps), per)]
+        chunks = _balanced(steps, per)
         if len(chunks) > MAX_SPLITS:
             continue
         cards = []

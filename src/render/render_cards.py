@@ -18,13 +18,30 @@ from pathlib import Path
 from typing import Any
 
 from ..errors import ErrorCode, PipelineError
-from ..paths import PROJECT_ROOT, TEMPLATE_DIR, ensure_dirs, image_name, images_dir
+from ..paths import (
+    PROJECT_ROOT,
+    TEMPLATE_DIR,
+    ensure_dirs,
+    image_name,
+    images_dir,
+    is_stale,
+)
+from .browser import launch_chromium, sync_playwright_or_die
 from .layout import plan_all
 
 RATIOS = {"1x1": (1080, 1080), "4x5": (1080, 1350)}
 
 THEME = os.environ.get("CARD_THEME", "b")     # b = 深色螢光（Human 2026-07-14 選定）
 RATIO = os.environ.get("CARD_RATIO", "1x1")
+
+# 拆卡的門檻。**這裡有兩個，不是一個。**
+#
+#   COMFORT_FS  低於這個字級就該拆卡了——不是「塞不下才拆」
+#   MIN_FS      低於這個根本不出圖（card.js 的硬底線）
+#
+# 第一版我只有硬底線，結果 5 步的卡縮到 34px 剛好塞得下 → 不拆 → 一面文字牆。
+# 「塞得下」和「讀得下去」是兩件事。
+COMFORT_FS = int(os.environ.get("CARD_COMFORT_FS", "44"))
 
 # 一則貼文的圖卡順序：封面 → 內容卡 → 結尾
 COVER_IDX, OUTRO_IDX = 1, 99
@@ -48,17 +65,40 @@ class Renderer:
         )
 
     def fits(self, card: dict[str, Any]) -> bool:
-        """量尺：在可讀性下限之上塞得下嗎？"""
-        return not self.measure(card)["overflow"]
+        """量尺：**讀得舒服嗎？** 不是「塞不塞得下」。
+
+        塞得下但字級掉到 34px = 文字牆。那種卡要拆，不是硬塞。
+        """
+        fit = self.measure(card)
+        return not fit["overflow"] and fit["fs"] >= COMFORT_FS
 
     def shoot(self, card: dict[str, Any], path: Path) -> dict[str, Any]:
+        """截圖前先稽核。**寧可不出圖，也不要出一張被切掉的圖。**
+
+        `overflow` 是 autofit 推論出來的，`audit` 是逐一量出來的。
+        兩個都要過——第一次出圖時，autofit 因為量錯東西而漏判，
+        第 11 張卡就這樣被切掉送出去了。獨立的第二道檢查是為了那個教訓。
+        """
         fit = self.measure(card)
+        title = card.get("title") or card.get("text") or card.get("angle") or card["type"]
+
         if fit["overflow"]:  # plan() 應該已經處理掉了，走到這裡是 bug
             raise PipelineError(
                 ErrorCode.RENDER_OVERFLOW,
-                f"{card['type']} 卡溢出且未被拆開：{card.get('title') or card.get('text')}",
+                f"{card['type']} 卡溢出且未被拆開：{title}",
                 hint="layout.plan() 的拆卡邏輯有漏洞",
             )
+
+        a = fit.get("audit") or {}
+        if a.get("clipped"):
+            w = a.get("worst") or {}
+            raise PipelineError(
+                ErrorCode.RENDER_OVERFLOW,
+                f"{card['type']} 卡有元素被切掉（超出 {a['overBy']}px）：{title}\n"
+                f"      元素：{w.get('tag')}｜「{w.get('text')}」",
+                hint="autofit 漏判了。這張圖不出——寧可少一張，也不要發一張被切掉的圖",
+            )
+
         self.page.screenshot(path=str(path), scale="css")
         return fit
 
@@ -72,14 +112,7 @@ def render_post(
     ratio: str = RATIO,
 ) -> list[dict[str, Any]]:
     """把一則貼文的知識卡渲染成 PNG。回傳 post.json 要用的 images 清單。"""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as e:  # pragma: no cover
-        raise PipelineError(
-            ErrorCode.MISSING_INPUT,
-            "沒有安裝 playwright",
-            hint="pip install -r requirements.txt && playwright install chromium",
-        ) from e
+    sync_playwright = sync_playwright_or_die()
 
     if ratio not in RATIOS:
         raise ValueError(f"未知的比例：{ratio}（可用：{list(RATIOS)}）")
@@ -90,7 +123,7 @@ def render_post(
     images: list[dict[str, Any]] = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = launch_chromium(p)
         page = browser.new_page(viewport={"width": w, "height": h})
         page.goto(_card_url())
         page.evaluate(
@@ -157,10 +190,24 @@ def render(slug: str, ratio: str = RATIO, force: bool = False) -> list[Path]:
     out: list[Path] = []
     for i, post in enumerate(h["posts"], 1):
         d = images_dir(slug, i)
-        if d.exists() and any(d.glob("*.png")) and not force:
-            out.extend(sorted(d.glob("*.png")))
+        existing = sorted(d.glob("*.png")) if d.exists() else []
+
+        # **跳過的條件不是「有圖」，是「圖比所有輸入都新」。**
+        # 輸入有兩個：`highlights.json`（內容）和 `templates/`（版型）——
+        # 改了 card.css 卻不重出圖，就是拿舊版型的圖當新的用。
+        oldest = min(existing, key=lambda p: p.stat().st_mtime) if existing else None
+        stale = oldest is None or is_stale(oldest, highlights_path(slug), TEMPLATE_DIR)
+        if not stale and not force:
+            out.extend(existing)
             continue
-        print(f"  第 {i} 則：{post['angle']}")
+
+        # 重出之前先清空。卡片從 9 張變 5 張時，舊的 `07_point_6.png` 會留在那裡
+        # 變成孤兒——而你發文時很可能把它一起發出去。
+        for old in existing:
+            old.unlink()
+
+        why = "" if not existing else "（圖比輸入舊，重出）"
+        print(f"  第 {i} 則：{post['angle']} {why}")
         imgs = render_post(post, ctx, slug, i, ratio=ratio)
         out.extend(d / Path(m["path"]).name for m in imgs)
     return out

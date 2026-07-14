@@ -25,6 +25,7 @@ from ..errors import ErrorCode, PipelineError
 from ..llm import LLMFn, current_model, get_llm
 from ..paths import PROMPT_DIR, article_path, highlights_path
 from ..schema import read_json, validate, write_json
+from . import locale
 from .grounding import Finding, check, iter_claims, review
 
 # 超過這個長度才需要分段。20k 字的逐字稿一次塞得下，別為了不存在的問題蓋一座 map-reduce。
@@ -133,13 +134,20 @@ def analyze(article: dict[str, Any], llm: LLMFn | None = None) -> dict[str, Any]
     for repair in range(MAX_REPAIR_ROUNDS + 1):
         raw = _ask_for_json(llm, prompt, slug)
         data = {
-            "schema_version": "3.0",
+            "schema_version": "3.1",
             "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
             "model": current_model(),
             "source": article["source"],
             "summary": raw.get("summary", [])[:7],
             "posts": raw.get("posts", [])[:3],
         }
+        # 簡體 → 台灣正體。**程式做，不叫模型做**：轉換是確定性的字串對應，
+        # 為它多跑一輪 LLM 又慢又不保證改乾淨。（evidence 不動——那是原文。）
+        # 放在 validate 之前：轉換可能改變字數，要驗就驗轉換後的結果。
+        n = locale.localize(data)
+        if n:
+            print(f"    簡體 → 台灣正體：改了 {n} 個欄位")
+
         try:
             validate("highlights", data)
         except PipelineError as e:
@@ -148,6 +156,27 @@ def analyze(article: dict[str, Any], llm: LLMFn | None = None) -> dict[str, Any]
             print(f"    產出不符 schema → 把錯誤餵回去請它修（第 {repair + 1} 輪）")
             prompt = _repair_prompt(build_prompt(article), raw, e.message)
             continue
+
+        # 圖卡上的中文必須是台灣的中文。**prompt 叮嚀不夠**——素材是簡體時，
+        # 模型會把原文的字和用語順手帶上卡片（2026-07-14 實跑：整整三則貼文都是簡體）。
+        #
+        # 但這裡有兩種東西，確定性差很多：
+        #   簡體字  → 機器說了算，改不掉就擋（`blocking()`）
+        #   用語    → **要看語意，機器判不準**（「程序正義」vs「這個程序有 bug」）
+        #             所以連同原句餵回去，讓模型自己判斷；它說不用改，就不改。
+        # 轉完還有簡體字 → 那是 OpenCC 的表沒蓋到，或我漏轉了某個欄位。
+        # 這是 bug，不是模型的錯，所以直接炸掉，不要靜靜地把簡體字印上圖卡。
+        left = locale.blocking(locale.scan(data))
+        if left:
+            raise PipelineError(
+                ErrorCode.NOT_TAIWANESE,
+                f"轉換後仍有 {len(left)} 處簡體字：\n" + locale.describe(left[:8]),
+                hint="locale.localize() 漏了某個欄位，或 OpenCC 的表沒蓋到這個字",
+            )
+
+        # 用語（質量／程序／用戶…）**不處理**：少數情況，而且要看語意才判得準
+        # （「程序正義」vs「這個程序有 bug」）。標在審稿表上給人看就好——
+        # 機器不替語意做決定。見 scripts/analyze_all.py。
 
         check(data, article, strict=STRICT)  # 預設只對照、不攔截
         return data

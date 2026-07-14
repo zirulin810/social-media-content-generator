@@ -67,13 +67,14 @@ def main() -> int:
     git(
         "commit",
         "-m",
-        "初始提交：文章 -> 知識卡 -> IG 圖卡 pipeline\n\n"
-        "- 契約 v3.0（docs/spec.md）：知識卡取代金句，每條主張帶 evidence\n"
-        "- ingest：Web Clipper 剪報正規化（剝時間戳、樣板、簡繁偵測）\n"
-        "- analyze：Gemini 抽知識卡，schema 不合就把錯誤餵回去請它修\n"
-        "- render：autofit 字級 + 塞不下就拆卡（不砍內容）\n"
-        "- templates：兩個主題（深色螢光 / 編輯大字）\n"
-        "- 84 條測試",
+        "初始提交：文章 -> 知識卡 -> 圖卡 -> 貼文文案\n\n"
+        "四個階段全部跑通（docs/spec.md v3.1）：\n"
+        "- ingest    Web Clipper 剪報正規化（剝時間戳、頻道樣板、簡繁偵測）\n"
+        "- analyze   Gemini 抽知識卡；每條主張帶 evidence；schema 不合就把錯誤餵回去請它修\n"
+        "- render    autofit 字級 + 塞不下就拆卡（不砍內容）；只用系統瀏覽器，不下載\n"
+        "- compose   hook + 正文，IG 與 Threads 共用一份；出處與 hashtag 由程式接\n\n"
+        "貫穿全部的一條線：機械的事程式做，判斷的事模型做，品味的事人來決定。\n"
+        "字數上限用真實版面校準過（不是猜的）；簡繁轉換用 OpenCC（不是手刻對照表）。",
     )
 
     print("\n" + "=" * 62)

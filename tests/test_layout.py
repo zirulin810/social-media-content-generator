@@ -138,3 +138,178 @@ def test_stale_pager_from_upstream_is_stripped() -> None:
     out = plan(card, budget(10))
     assert "pager" not in out[0]
     assert "startIndex" not in out[0]
+
+
+# --- 2026-07-14：Human 回報「它還是沒拆，只是塞在同一頁」---
+
+def test_split_triggers_on_comfort_not_on_hard_limit() -> None:
+    """**「塞得下」和「讀得下去」是兩件事。**
+
+    第一版的量尺是「縮到 34px 還塞不塞得下」——結果 5 步的卡剛好塞得下，
+    於是不拆，變成一面文字牆。技術上讀得到，實際上沒人會讀。
+
+    正解：量尺要問的是「字級有沒有掉到舒適下限以下」，不是「有沒有爆版」。
+    這條測試把那個教訓釘死：**一張「塞得下但很擠」的卡，必須被拆。**
+    """
+    crowded = {"type": "steps", "title": "t", "steps": [{"text": f"第 {i} 步"} for i in range(1, 6)]}
+
+    # 舊的量尺：只問「爆版了沒」→ 沒爆 → 不拆 → 文字牆
+    fits_if_not_overflowing = lambda c: True          # noqa: E731
+    assert len(plan(crowded, fits_if_not_overflowing)) == 1
+
+    # 新的量尺：問「讀得舒服嗎」→ 5 步太擠 → 拆
+    comfortable = lambda c: len(c["steps"]) <= 3      # noqa: E731
+    assert len(plan(crowded, comfortable)) == 2
+
+
+def test_split_chunks_are_balanced() -> None:
+    """6 步、每張最多 4 步 → [3, 3]，不是 [4, 2]。
+
+    最後一張只剩一步的卡，看起來就像做壞了。
+    """
+    from src.render.layout import _balanced
+
+    assert [len(c) for c in _balanced(list(range(6)), 4)] == [3, 3]
+    assert [len(c) for c in _balanced(list(range(5)), 3)] == [3, 2]
+    assert [len(c) for c in _balanced(list(range(7)), 3)] == [3, 2, 2]
+
+
+def test_no_orphan_single_step_card_when_avoidable() -> None:
+    """5 步、每張最多 2 步 → [2, 2, 1] 無法避免；但 [2, 3] 更好時要選 [2, 3]。"""
+    card = {"type": "steps", "title": "t", "steps": [{"text": f"第 {i} 步"} for i in range(1, 6)]}
+    cards = plan(card, lambda c: len(c["steps"]) <= 3)
+    assert [len(c["steps"]) for c in cards] == [3, 2]   # 不是 [3, 1, 1]
+
+
+# ---------------------------------------------------------------------------
+# 測試「測試」本身：實機腳本必須掃契約的邊界，不是掃我隨手想到的數字
+#
+# 2026-07-14：scripts/test_split.py 掃 2–6 步 × 30 字，但 schema 只准 2–4 步 × 60 字。
+# 於是它測了 pipeline 永遠產不出來的輸入（5、6 步），
+# 卻從沒測過它真的會產出的最壞情況（4 步 × 60 字）——**拆卡一次都沒被執行，測試卻是綠的。**
+# ---------------------------------------------------------------------------
+
+import json
+
+from src.paths import PROJECT_ROOT, SCHEMA_DIR
+
+
+def _limits() -> dict:
+    s = json.loads((SCHEMA_DIR / "highlights.schema.json").read_text(encoding="utf-8"))
+    steps = s["$defs"]["stepsCard"]["properties"]["steps"]
+    return {
+        "steps_max": steps["maxItems"],
+        "step_chars": steps["items"]["properties"]["text"]["maxLength"],
+        "point_chars": s["$defs"]["pointCard"]["properties"]["body"]["maxLength"],
+    }
+
+
+def test_split_script_reads_its_limits_from_the_schema() -> None:
+    """實機腳本不准把上限抄成常數——抄一份就多一個會跟契約走散的地方。"""
+    src = (PROJECT_ROOT / "scripts" / "test_split.py").read_text(encoding="utf-8")
+    assert "highlights.schema.json" in src, "測試範圍必須讀自 schema，不是寫死的數字"
+    assert "maxItems" in src and "maxLength" in src
+
+
+def test_split_script_refuses_to_pass_vacuously() -> None:
+    """一支從不執行受測程式碼的測試，全綠也證明不了任何事。
+
+    上一版就是這樣過的：五列全部「保留單張」，拆卡那條路一次都沒跑到。
+    所以腳本裡必須有一道「這輪到底有沒有拆到卡」的檢查。
+    """
+    src = (PROJECT_ROOT / "scripts" / "test_split.py").read_text(encoding="utf-8")
+    assert "split_seen" in src, "腳本必須檢查拆卡路徑是否真的被執行過"
+    assert "vacuous" in src
+
+
+def test_sample_cards_stay_inside_the_contract() -> None:
+    """壓力測試卡也得是**契約允許的**卡。
+
+    原本 _stress 放了一張 5 步的步驟卡（schema 上限是 4）——
+    測一個 pipeline 永遠產不出來的情況，過與不過都沒有意義。
+    """
+    lim = _limits()
+    sample = json.loads(
+        (PROJECT_ROOT / "samples" / "kaggle-day1-intro.json").read_text(encoding="utf-8")
+    )
+    for group in ("cards", "_stress"):
+        for card in sample.get(group, []):
+            if card["type"] == "steps":
+                assert len(card["steps"]) <= lim["steps_max"], f"{group}: 步數超出契約"
+                for s in card["steps"]:
+                    assert len(s["text"]) <= lim["step_chars"], f"{group}: 步驟字數超出契約"
+            elif card["type"] == "point":
+                assert len(card["body"]) <= lim["point_chars"], f"{group}: 重點字數超出契約"
+
+
+def test_schema_limits_are_physical_not_editorial() -> None:
+    """schema 的上限必須訂在「版面印不出來」的地方，不是「我希望它寫多短」。
+
+    2026-07-14：`steps` 每步上限訂 50（依據是我自己寫的一句 44 字範例），
+    模型把同一件事寫成 52 字 → **兩篇文章整份被丟掉，各燒 3 次 LLM 呼叫，死在兩個字上**。
+    而版面實際吃得下 129 字（`calibrate.py` 實測）。
+
+    編輯偏好屬於 prompt（目標值），密度屬於渲染器（自動拆卡），schema 只管物理極限。
+    這條測試釘住那條線：上限不准回頭訂到「編輯目標」的高度。
+    """
+    lim = _limits()
+    assert lim["step_chars"] >= 90, (
+        f"steps 每步上限 {lim['step_chars']} 太緊——那是編輯偏好不是物理極限。"
+        "實測版面吃得下 129 字；訂太緊只會讓合理的內容被整份丟掉"
+    )
+    assert lim["point_chars"] >= 150
+    s = json.loads((SCHEMA_DIR / "highlights.schema.json").read_text(encoding="utf-8"))
+    assert s["$defs"]["contrastSide"]["properties"]["text"]["maxLength"] >= 100
+
+
+# ---------------------------------------------------------------------------
+# 產物新鮮度：**跳過的條件是「圖是新的」，不是「有圖」**
+# ---------------------------------------------------------------------------
+
+def test_render_reruns_when_the_source_is_newer() -> None:
+    """簡繁轉換上線後重跑分析，圖卡卻還是簡體——**因為渲染器看到有 PNG 就跳過了。**
+
+    產物過期而不自知，比沒有產物更危險：你會拿著一份「看起來已經更新」的東西去發文。
+    """
+    src = (PROJECT_ROOT / "src" / "render" / "render_cards.py").read_text(encoding="utf-8")
+    assert "is_stale" in src, "跳過與否必須比對時間，不能只看檔案存不存在"
+    assert "TEMPLATE_DIR" in src, "版型也是輸入——改了 card.css 就該重出圖"
+
+
+def test_staleness_is_measured_against_every_input() -> None:
+    """**產物該不該重做，要跟它的每一個輸入比時間。**
+
+    2026-07-14 連續踩到兩次：
+      1. 重跑分析 → 圖卡還是簡體（渲染器看到有 PNG 就跳過）
+      2. 改了 prompt → 重跑文案 → 秒回，印的是上一輪的舊文案
+
+    第二次尤其陰險：**我改的是 prompt，不是上游的資料。**
+    只比對「上一階段的產物」抓不到——**prompt 和版型也是輸入。**
+    """
+    import time
+
+    from src.paths import is_stale
+
+    tmp = PROJECT_ROOT / "out" / "_stale_probe"
+    tmp.mkdir(parents=True, exist_ok=True)
+    product, upstream, prompt = tmp / "p.json", tmp / "u.json", tmp / "prompt.md"
+    try:
+        upstream.write_text("u", encoding="utf-8")
+        prompt.write_text("v1", encoding="utf-8")
+        time.sleep(0.01)
+        product.write_text("p", encoding="utf-8")
+        assert not is_stale(product, upstream, prompt), "產物比輸入新，不該重做"
+
+        time.sleep(0.01)
+        prompt.write_text("v2", encoding="utf-8")  # 只動 prompt，上游資料沒變
+        assert is_stale(product, upstream, prompt), "改了 prompt 就該重做——它也是輸入"
+    finally:
+        for f in (product, upstream, prompt):
+            f.unlink(missing_ok=True)
+        tmp.rmdir()
+
+
+def test_render_clears_stale_images_before_redrawing() -> None:
+    """卡片從 9 張變 5 張 → 舊的第 6~9 張會變成孤兒，而且很可能被一起發出去。"""
+    src = (PROJECT_ROOT / "src" / "render" / "render_cards.py").read_text(encoding="utf-8")
+    assert "unlink()" in src, "重出之前必須清空舊圖"

@@ -82,3 +82,25 @@ def test_slugify_handles_ascii_and_cjk() -> None:
 
 def test_spec_exists() -> None:
     assert (PROJECT_ROOT / "docs" / "spec.md").exists()
+
+
+def test_schema_errors_are_readable_by_a_human_and_a_model() -> None:
+    """**驗證器的錯誤訊息是使用者介面**——而且它同時是餵回給模型的修復指令。
+
+    2026-07-14 實跑：一則貼文放了 9 張卡（上限 6）。jsonschema 的預設訊息是
+    把**整個卡片陣列 dump 出來**再接一句 `is too long`——數千字，模型連修兩輪
+    都在原地打轉，因為它看不出來要做什麼。真正的意思只有一句：9 張，上限 6 張。
+    """
+    from src.schema import validate
+
+    data = copy.deepcopy(_example("highlights"))
+    card = data["posts"][0]["cards"][0]
+    data["posts"][0]["cards"] = [copy.deepcopy(card) for _ in range(9)]
+
+    with pytest.raises(PipelineError) as e:
+        validate("highlights", data)
+
+    msg = e.value.message
+    assert "9 項" in msg and "6 項" in msg, f"訊息沒講清楚幾張、上限幾張：{msg}"
+    assert "para_index" not in msg, "訊息把整包資料 dump 出來了——那是給機器看的，不是給人看的"
+    assert len(msg) < 600, f"訊息太長，沒人會讀（{len(msg)} 字）"

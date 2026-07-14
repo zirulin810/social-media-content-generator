@@ -25,6 +25,7 @@ warn_if_global()
 
 from src.errors import PipelineError  # noqa: E402
 from src.paths import PROJECT_ROOT  # noqa: E402
+from src.render.browser import launch_chromium, sync_playwright_or_die  # noqa: E402
 from src.render.layout import plan_all  # noqa: E402
 from src.render.render_cards import RATIOS, Renderer  # noqa: E402
 
@@ -45,7 +46,7 @@ def run(theme: str, ratio: str) -> int:
     print(f"{'=' * 60}")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = launch_chromium(p)
         page = browser.new_page(viewport={"width": w, "height": h})
         page.goto((PROJECT_ROOT / "templates" / "card.html").as_uri())
         page.evaluate(
@@ -71,8 +72,9 @@ def run(theme: str, ratio: str) -> int:
             name = f"{i:02d}_{card['type']}.png"
             fit = r.shoot(card, out / name)
             tag = "  ← 拆卡" if card.get("pager") else ""
-            warn = "  ⚠ 逼近可讀性下限" if fit["fs"] <= 38 else ""
-            if fit["fs"] <= 38:
+            from src.render.render_cards import COMFORT_FS as _c
+            warn = "  ⚠ 仍低於舒適下限" if fit["fs"] < _c else ""
+            if fit["fs"] < _c:
                 low += 1
             title = card.get("title") or card.get("angle") or card.get("text") or ""
             print(f"  {name:22} 字級 {fit['fs']:>2}px  {title[:26]}{tag}{warn}")
@@ -112,4 +114,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except PipelineError as e:
+        # 環境問題不該噴 traceback——直接講怎麼修
+        print(f"\n✗ {e.render()}")
+        raise SystemExit(1) from None

@@ -69,7 +69,10 @@ body {
 }
 body[data-ratio="4x5"] { height: 1350px; }
 
-.card { flex:1; display:flex; flex-direction:column; padding: var(--pad); position:relative; }
+/* 卡片是**容器**，不是內容——不准被內容撐大。
+ * min-height:0 關掉 flex 項目「不能小於內容」的預設行為，
+ * 這樣內容太多時是 body 的 scrollHeight 變大（量得出來），而不是卡片默默長高被裁掉。 */
+.card { flex:1; min-height:0; display:flex; flex-direction:column; padding: var(--pad); position:relative; }
 
 /* 眉標（卡型標籤） */
 .kicker {
@@ -134,8 +137,9 @@ ol.steps li { display:flex; gap: calc(var(--fs) * .36); align-items:flex-start;
             font-size: calc(var(--fs) * .6); line-height: 1.6; }
 .vs .lab { flex:none; font-family: var(--font-ui); font-weight: 800;
            font-size: calc(var(--fs) * .38); letter-spacing:.1em; padding: .35em .6em; border-radius:3px; }
-[data-theme="a"] .vs .wrong .lab { color:#fff; background: var(--accent); }
-[data-theme="a"] .vs .right .lab { color:#fff; background: var(--ink); }
+/* 標籤上的字用底色，不是寫死的白——主題 A 的底是米白不是純白 */
+[data-theme="a"] .vs .wrong .lab { color: var(--bg); background: var(--accent); }
+[data-theme="a"] .vs .right .lab { color: var(--bg); background: var(--ink); }
 [data-theme="a"] .vs .wrong { color: var(--ink-soft); }
 [data-theme="a"] .vs .right { color: var(--ink); }
 /* ✓✗ 是**結構標籤**，不是重點——用語意色（紅／綠），不碰螢光 */

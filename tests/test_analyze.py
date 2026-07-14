@@ -102,7 +102,7 @@ def _llm(payload: dict):
 def test_analyze_produces_valid_v3_highlights() -> None:
     data = analyze(ARTICLE, llm=_llm(GOOD))
     validate("highlights", data)
-    assert data["schema_version"] == "3.0"
+    assert data["schema_version"] == "3.1"
     assert len(data["posts"]) == 1
     assert {c["type"] for c in data["posts"][0]["cards"]} == {"point", "steps", "contrast", "quote"}
 
@@ -211,7 +211,7 @@ def test_step_without_evidence_is_rejected_by_schema() -> None:
     bad = copy.deepcopy(GOOD)
     del bad["posts"][0]["cards"][1]["steps"][0]["evidence"]
     data = {
-        "schema_version": "3.0",
+        "schema_version": "3.1",
         "generated_at": "2026-07-13T01:00:00+08:00",
         "source": ARTICLE["source"],
         **bad,
@@ -224,7 +224,7 @@ def test_more_than_three_posts_is_rejected() -> None:
     bad = copy.deepcopy(GOOD)
     bad["posts"] = bad["posts"] * 4
     data = {
-        "schema_version": "3.0",
+        "schema_version": "3.1",
         "generated_at": "2026-07-13T01:00:00+08:00",
         "source": ARTICLE["source"],
         **bad,
@@ -294,6 +294,76 @@ def test_broken_json_is_retried() -> None:
     assert len(data["posts"]) == 1
 
 
+def _quote_claim(source_text: str, para_index: int = 0) -> dict:
+    """一則只有一張金句卡的 highlights，拿來單獨測 grounding 的比對。"""
+    return {
+        "posts": [
+            {
+                "angle": "a",
+                "cards": [
+                    {
+                        "type": "quote",
+                        "text": "中文重述",
+                        "verbatim": False,
+                        "evidence": [{"para_index": para_index, "source_text": source_text}],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_capitalising_the_first_letter_is_not_a_hallucination() -> None:
+    """從句中開始引用，首字母大寫——**那是正確的引用方式，不是編造。**
+
+    2026-07-14 實跑抓到：
+        原文「The first gotcha, don't import everything from your old notes app.」
+        模型「Don't import everything from your old notes app.」
+    一字不差，只有 d→D。舊的比對是大小寫敏感的，於是判成 `fabricated`＝最高警戒。
+    **防線要抓的是編造，不是大寫。**
+    """
+    f = review(_quote_claim("OBSIDIAN is just A FOLDER of notes on your computer."), ARTICLE)[0]
+    assert f.ok, f.problem
+    assert f.severity == "ok"
+
+
+def test_quote_spanning_two_paragraphs_is_harmless_and_says_where() -> None:
+    """引文橫跨兩段（原文的分段不見得切在句號上）→ 無害，但要講得出跨了哪幾段。
+
+    舊版找得到句子卻答不出段號，印出「其實在第 **None** 段」——
+    使用者看到 None，只能猜那是什麼意思。**看不懂的訊息等於沒有訊息。**
+    """
+    spanning = "on your computer. Give the AI a map"  # 橫跨第 0、1 段
+    f = review(_quote_claim(spanning, para_index=0), ARTICLE)[0]
+    assert not f.ok
+    assert f.severity == "misindexed"       # 句子是真的，只是跨了段界
+    assert "None" not in f.problem
+    assert "0–1" in f.problem
+
+
+def test_a_genuinely_invented_quote_is_still_caught() -> None:
+    """放寬大小寫之後，真的編造仍然要被抓出來——否則防線就白拆了。"""
+    f = review(_quote_claim("Obsidian automatically writes your notes for you."), ARTICLE)[0]
+    assert not f.ok
+    assert f.severity == "fabricated"
+
+
+def _too_long_step() -> str:
+    """一個「保證超過 schema 上限」的步驟字串。
+
+    **上限去問 schema，不要抄進測試。** 原本這裡寫死 `"字" * 61`（因為當時上限是 60）——
+    2026-07-14 上限改成 100 之後，61 字變成合法值，這兩條測試就靜靜地測不到東西了：
+    一條沒觸發修復迴圈，一條沒觸發該有的錯誤。**抄一份上限，就多一個會跟契約走散的地方。**
+    """
+    import json as _json
+
+    from src.paths import SCHEMA_DIR
+
+    s = _json.loads((SCHEMA_DIR / "highlights.schema.json").read_text(encoding="utf-8"))
+    cap = s["$defs"]["stepsCard"]["properties"]["steps"]["items"]["properties"]["text"]["maxLength"]
+    return "字" * (cap + 1)
+
+
 def test_schema_failure_is_repaired_not_restarted() -> None:
     """欄位超字數不必整批重想——把錯誤餵回去，叫它改那幾個地方就好。
     它已經讀完文章了，重跑一次全文分析是浪費。"""
@@ -304,7 +374,7 @@ def test_schema_failure_is_repaired_not_restarted() -> None:
         calls["prompts"].append(prompt)
         if calls["n"] == 1:
             bad = copy.deepcopy(GOOD)
-            bad["posts"][0]["cards"][1]["steps"][0]["text"] = "字" * 61  # 超過 60
+            bad["posts"][0]["cards"][1]["steps"][0]["text"] = _too_long_step()
             return json.dumps(bad, ensure_ascii=False)
         return json.dumps(GOOD, ensure_ascii=False)
 
@@ -320,7 +390,7 @@ def test_repair_gives_up_eventually() -> None:
     """模型改不好就得認輸，不能無限迴圈。"""
     def always_bad(_prompt: str) -> str:
         bad = copy.deepcopy(GOOD)
-        bad["posts"][0]["cards"][1]["steps"][0]["text"] = "字" * 61
+        bad["posts"][0]["cards"][1]["steps"][0]["text"] = _too_long_step()
         return json.dumps(bad, ensure_ascii=False)
 
     with pytest.raises(PipelineError) as e:

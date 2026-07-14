@@ -55,8 +55,20 @@ QUOTES = re.compile(r"[\"\'\u2018\u2019\u201c\u201d\u300c\u300d\u300e\u300f\u203
 
 
 def _normalize(s: str) -> str:
-    """比對用：吃掉空白與引號的差異，但不動文字本身。"""
-    return QUOTES.sub("", re.sub(r"\s+", "", s))
+    """比對用：吃掉空白、引號與大小寫的差異，但不動文字本身。
+
+    **大小寫也要抹掉。** 2026-07-14 實跑時，模型從句中開始引用：
+
+        原文：「The first gotcha, don't import everything from your old notes app.」
+        模型：「Don't import everything from your old notes app.」
+
+    它把首字母大寫了——引用一句話時本來就該這樣。句子一字不差，
+    我的比對卻是大小寫敏感的，於是判它「原文中完全找不到」＝**最高警戒的幻覺**。
+
+    防線的意義是抓「編造」，不是抓「大寫」。一個字母不該決定一句真話的生死。
+    （這跟引號的處理是同一個道理：見上面 QUOTES。）
+    """
+    return QUOTES.sub("", re.sub(r"\s+", "", s)).casefold()
 
 
 def iter_claims(highlights: dict[str, Any]) -> Iterator[Claim]:
@@ -111,9 +123,29 @@ def review(highlights: dict[str, Any], article: dict[str, Any]) -> list[Finding]
     它不回答「這個中文重述有沒有超出原文的意思」——那是人的工作。
     """
     paragraphs = {p["index"]: _normalize(p["text"]) for p in article["paragraphs"]}
-    body = _normalize(article["body"])
     n = len(paragraphs)
     out: list[Finding] = []
+
+    # 把所有段落接成一條字串，並記住每一段佔哪個區間。
+    # **為什麼要記區間**：一句引文可能橫跨兩段（作者換行的地方，不見得是句號）。
+    # 舊版只問「在不在全文裡」，找到了卻答不出「在第幾段」，於是印出「其實在第 None 段」。
+    spans: list[tuple[int, int, int]] = []
+    parts: list[str] = []
+    pos = 0
+    for p in article["paragraphs"]:
+        t = _normalize(p["text"])
+        spans.append((pos, pos + len(t), p["index"]))
+        parts.append(t)
+        pos += len(t)
+    body = "".join(parts)  # 正規化後空白已消失，等同於 _normalize(article["body"])
+
+    def _locate(src: str) -> list[int]:
+        """這句話落在哪幾段？回傳段落索引（跨段就會有多個）。"""
+        at = body.find(src)
+        if at < 0:
+            return []
+        end = at + len(src)
+        return [i for (s, e, i) in spans if at < e and end > s]
 
     for claim in iter_claims(highlights):
         if not claim.evidence:
@@ -132,11 +164,17 @@ def review(highlights: dict[str, Any], article: dict[str, Any]) -> list[Finding]
                 continue  # 對得上
 
             # 對不上，但這句話在別的段落找得到嗎？
-            # 找得到 → 只是索引標錯，句子是真的，無害。
+            # 找得到 → 句子是真的，只是索引偏了或跨了段界，無害。
             # 找不到 → 原文裡根本沒這句話。這才是要警戒的。
-            if src in body:
-                actual = next((i for i, t in paragraphs.items() if src in t), None)
-                problems.append(f"段落標錯：說在第 {idx} 段，其實在第 {actual} 段")
+            hit = _locate(src)
+            if len(hit) == 1:
+                problems.append(f"段落標錯：說在第 {idx} 段，其實在第 {hit[0]} 段")
+                severity = "misindexed" if severity == "ok" else severity
+            elif len(hit) > 1:
+                problems.append(
+                    f"跨段落：這句話橫跨第 {hit[0]}–{hit[-1]} 段（宣稱第 {idx} 段）"
+                    "——原文的分段不見得切在句號上"
+                )
                 severity = "misindexed" if severity == "ok" else severity
             elif para is None:
                 problems.append(f"指向不存在的段落 {idx}（全文只有 {n} 段）")

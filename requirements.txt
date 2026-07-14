@@ -10,7 +10,16 @@ jsonschema>=4.21
 # stage 2/4 analyze + compose: LLM via plain REST, no SDK
 python-dotenv>=1.0
 
-# stage 3 render: headless browser screenshots
+# stage 2: Simplified -> Taiwan Traditional. Deterministic string conversion,
+# so the PROGRAM does it -- not the model. Hand-rolling the table is a trap:
+# one simplified char can map to several traditional ones (hair vs happen,
+# dry vs do-work), which needs word-level context. s2twp also localises the
+# vocabulary (video / folder / default -> Taiwan wording). See README.
+opencc-python-reimplemented>=0.1.7
+
+# stage 3 render: drives the SYSTEM browser (Edge/Chrome) -- we do NOT download one.
+# Do NOT run `playwright install` (no args): that pulls Chromium+Firefox+WebKit (~1GB).
+# See README, section "why you don't need to install a browser".
 playwright>=1.44
 
 # dev

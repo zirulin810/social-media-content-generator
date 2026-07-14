@@ -2,6 +2,6 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 call "%~dp0_py.bat"
-"%PY%" scripts\render_all.py
-explorer "out"
+"%PY%" scripts\compose_all.py
+echo.
 pause

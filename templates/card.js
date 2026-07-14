@@ -10,8 +10,13 @@
  * 字級下限 MIN_FS 是唯一的紅線：低於它就不叫圖卡，叫掃描件。
  */
 
-const MAX_FS = 76;   // px @1080
-const MIN_FS = 34;   // 可讀性下限——1080 的圖縮到手機上，這是極限
+const MAX_FS = 76;      // px @1080
+const MIN_FS = 34;      // **硬底線**：低於這個根本不能出圖，那不叫圖卡叫掃描件
+const COMFORT_FS = 44;  // **舒適下限**：低於這個就該拆卡了
+//
+// 兩個門檻，不是一個。
+// 原本我只有 MIN_FS，於是「縮到 34px 還塞得下」就不拆——結果是一面文字牆。
+// 技術上讀得到，實際上沒人會讀。34–44 之間那段「醜但不違法」的區間必須擋掉。
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 /* 讓模型可以用 **粗體** 標重點，主題 B 會渲染成螢光筆 */
@@ -99,21 +104,68 @@ const TEMPLATES = {
     </div>`,
 };
 
+/* 溢出偵測。
+ *
+ * ⚠️ 這裡曾經有一個 bug，害第 11 張卡被切掉：
+ *
+ *   原本量的是 `card.scrollHeight <= card.clientHeight`。
+ *   但 `.card` 是 flex 項目、`min-height` 預設 `auto`——**它會被內容撐大**
+ *   （撐到 1300px），再被 body 的 overflow:hidden 裁掉。
+ *   於是檢查變成 1300 <= 1300 → 回報「塞得下」。**量尺跟著卡片一起長高，永遠量不出溢出。**
+ *
+ * 正確的做法是量**視窗**：body 的高度是固定的（1080/1350），它不會跟著長。
+ */
+function overflows(root) {
+  const card = root.querySelector('.card');
+  const limitH = root.clientHeight;      // 視窗高度——這個不會變
+  const limitW = root.clientWidth;
+  return (
+    root.scrollHeight > limitH + 1 ||                        // 內容把 body 撐開了
+    card.getBoundingClientRect().height > limitH + 1 ||      // 卡片自己長高了
+    card.scrollHeight > limitH + 1 ||
+    root.scrollWidth > limitW + 1
+  );
+}
+
 /* 二分搜尋塞得下的最大字級。回傳 {fs, overflow}。 */
 function autofit(root) {
   let lo = MIN_FS, hi_ = MAX_FS, best = MIN_FS;
   const fits = (fs) => {
     root.style.setProperty('--fs', fs + 'px');
-    const card = root.querySelector('.card');
-    return card.scrollHeight <= card.clientHeight + 1 && card.scrollWidth <= card.clientWidth + 1;
+    return !overflows(root);
   };
   for (let i = 0; i < 12 && lo <= hi_; i++) {
     const mid = Math.floor((lo + hi_) / 2);
     if (fits(mid)) { best = mid; lo = mid + 1; } else { hi_ = mid - 1; }
   }
-  const overflow = !fits(best);   // 連下限都塞不下
   root.style.setProperty('--fs', best + 'px');
+  const overflow = overflows(root);   // 連下限都塞不下 → 要拆卡
   return { fs: best, overflow };
+}
+
+/* 獨立稽核：掃過每一個元素，回報有沒有人跑出視窗外。
+ *
+ * 為什麼要這個？因為 overflows() 是靠 CSS/flex 的行為推論出來的，
+ * 而**我已經在那上面栽過一次**（卡片自己長高，量尺跟著長高，永遠量不出溢出）。
+ *
+ * 這支不推論，直接量每個元素的 bounding box。它跟 CSS 怎麼寫無關——
+ * 就算 flex 的行為又出乎我意料，這裡還是抓得到。
+ * render_cards.py 在截圖前會呼叫它，任何一個元素超出邊界就拒絕出圖。
+ */
+function audit(root) {
+  const W = root.clientWidth, H = root.clientHeight;
+  let worst = null, maxOver = 0;
+  for (const el of root.querySelectorAll('*')) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    const over = Math.max(r.bottom - H, r.right - W, -r.top, -r.left);
+    if (over > maxOver) {
+      maxOver = over;
+      worst = { tag: el.className || el.tagName, over: Math.round(over),
+                text: (el.textContent || '').slice(0, 30) };
+    }
+  }
+  return { clipped: maxOver > 1, overBy: Math.round(maxOver), worst };
 }
 
 function renderCard(card, ctx) {
@@ -121,9 +173,11 @@ function renderCard(card, ctx) {
   if (!fn) throw new Error('未知的卡型：' + card.type);
   document.body.innerHTML = fn(card, ctx);
   const r = autofit(document.body);
-  window.__fit = r;                       // Playwright 讀這個判斷要不要拆卡
+  r.audit = audit(document.body);          // 獨立稽核，不信任 autofit 的判斷
+  window.__fit = r;
   return r;
 }
 
 window.renderCard = renderCard;
 window.CARD_MIN_FS = MIN_FS;
+window.CARD_COMFORT_FS = COMFORT_FS;

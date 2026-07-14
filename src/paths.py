@@ -22,6 +22,34 @@ def out_root() -> Path:
     return PROJECT_ROOT / os.environ.get("OUT_DIR", "out")
 
 
+def is_stale(product: Path, *inputs: Path) -> bool:
+    """產物該不該重做？**跟它的每一個輸入比時間。**
+
+    「已經有檔案就跳過」是最省事、也最危險的續跑邏輯——**產物過期而不自知，
+    比根本沒有產物更糟**：你會拿著一份看起來已經更新的東西去發文。
+
+    2026-07-14 連續踩到兩次：
+      1. 簡繁轉換上線 → 重跑分析 → 圖卡還是簡體（渲染器看到有 PNG 就跳過）
+      2. 改了 prompt → 重跑文案 → 秒回，印出來的是上一輪的舊文案
+
+    第二次尤其陰險：**我改的是 prompt，不是上游的資料。** 只比對上游產物的時間也抓不到——
+    **prompt 和版型也是輸入。** 所以這個函式吃的是「所有輸入」，不是「上一階段的產物」。
+    """
+    if not product.exists():
+        return True
+    made = product.stat().st_mtime
+    for src in inputs:
+        if not src.exists():
+            continue
+        if src.is_dir():
+            newest = max((p.stat().st_mtime for p in src.rglob("*") if p.is_file()), default=0)
+        else:
+            newest = src.stat().st_mtime
+        if newest > made:
+            return True
+    return False
+
+
 def article_dir(slug: str) -> Path:
     return out_root() / slug
 

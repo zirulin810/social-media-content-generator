@@ -100,6 +100,19 @@ def show(slug: str) -> bool:
     if counts["fabricated"]:
         print(f"  ✗ {counts['fabricated']} 條**原文中完全找不到** ← 這幾條要看仔細")
     print("\n  機器不判斷「中文有沒有超譯」——那要你看上面的並排。")
+
+    # 用語只標記、不判決。**同一個詞，語意不同就是兩件事**：
+    # 「程序正義」是台灣話，「這個程序有 bug」是中國話——黑名單看得到字串，看不到語意。
+    from src.analyze import locale
+
+    terms = [i for i in locale.scan(h) if i.kind == "term"]
+    if terms:
+        print(f"\n─── 用語提醒（{len(terms)} 處，**機器判不準，你自己看**）" + "─" * 18)
+        for i in terms:
+            print(f"  ⚑ {i.where}：「{i.found}」→ 台灣通常說「{i.suggest}」")
+            print(f"      {i.context}")
+        print("  真的是中國用語就改；是台灣的正常說法（程序正義、大數據、電影腳本）就不用理它。")
+
     return counts["fabricated"] == 0
 
 
