@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>圖卡版型預覽 — A / B</title>
+<link rel="stylesheet" href="card.css">
+<style>
+  /* 預覽頁自己的樣式（不影響卡片本身） */
+  html { background:#EDEDED; }
+  body { width:auto!important; height:auto!important; display:block!important;
+         background:#EDEDED!important; color:#111!important;
+         font-family:"Noto Sans TC",system-ui,sans-serif!important; padding:28px; overflow:auto!important; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { font-size:13px; color:#666; margin-bottom:20px; line-height:1.6; }
+  .bar { position:sticky; top:0; z-index:9; background:#EDEDEDEE; backdrop-filter:blur(6px);
+         padding:12px 0 14px; margin-bottom:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button { font:inherit; font-size:13px; font-weight:700; padding:7px 14px; border:1px solid #CCC;
+           background:#fff; border-radius:6px; cursor:pointer; }
+  button.on { background:#111; color:#fff; border-color:#111; }
+  .sec { font-size:14px; font-weight:700; margin:22px 0 10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:18px; }
+  .cell { background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .shot { width:100%; aspect-ratio:1/1; position:relative; overflow:hidden; }
+  .shot[data-ratio="4x5"] { aspect-ratio:4/5; }
+  iframe { position:absolute; top:0; left:0; width:1080px; height:1080px; border:0;
+           transform-origin:top left; }
+  .meta { padding:9px 11px; font-size:11px; line-height:1.5; }
+  .meta b { display:block; font-size:12px; margin-bottom:3px; }
+  .fs { color:#0A7; font-weight:700; }
+  .fs.warn { color:#C60; }
+  .ev { color:#888; font-size:10px; margin-top:5px; border-left:2px solid #DDD; padding-left:6px; }
+</style>
+</head>
+<body>
+<h1>圖卡版型預覽</h1>
+<div class="sub">
+  內容是 Kaggle 白皮書導讀 Podcast 的真實產出（Day 1 · 介紹篇）。<br>
+  <b>每張卡的字級由程式二分搜尋決定</b>——內容多就縮，內容少就放大。綠色數字是實際字級；橘色代表已經逼近可讀性下限（34px）。
+</div>
+
+<div class="bar">
+  <span style="font-size:12px;font-weight:700">主題</span>
+  <button id="ta" onclick="setTheme('a')">A · 編輯大字</button>
+  <button id="tb" class="on" onclick="setTheme('b')">B · 深色螢光（預設）</button>
+  <span style="width:12px"></span>
+  <span style="font-size:12px;font-weight:700">尺寸</span>
+  <button id="r1" class="on" onclick="setRatio('1x1')">1:1</button>
+  <button id="r2" onclick="setRatio('4x5')">4:5</button>
+</div>
+
+<div class="sec" id="sec1"></div>
+<div class="grid" id="main"></div>
+
+<div class="sec">滿版壓力測試 — 版型撐不撐得住最糟的情況</div>
+<div class="grid" id="stress"></div>
+
+<script>
+let THEME = 'b', RATIO = '1x1', DATA = null;   // 預設 B（Human 2026-07-14 選的）；A 保留
+
+function setTheme(t){ THEME=t; ta.className = t==='a'?'on':''; tb.className = t==='b'?'on':''; draw(); }
+function setRatio(r){ RATIO=r; r1.className = r==='1x1'?'on':''; r2.className = r==='4x5'?'on':''; draw(); }
+
+function cell(card, ctx, note){
+  const wrap = document.createElement('div'); wrap.className='cell';
+  const shot = document.createElement('div'); shot.className='shot'; shot.dataset.ratio = RATIO;
+  const f = document.createElement('iframe'); f.src = 'card.html';
+  shot.appendChild(f); wrap.appendChild(shot);
+  const m = document.createElement('div'); m.className='meta'; wrap.appendChild(m);
+
+  f.onload = () => {
+    const d = f.contentDocument, w = f.contentWindow;
+    d.body.dataset.theme = THEME;
+    d.body.dataset.ratio = RATIO;
+    const r = w.renderCard(card, ctx);
+    const h = RATIO==='1x1' ? 1080 : 1350;
+    const scale = shot.clientWidth / 1080;
+    f.style.transform = `scale(${scale})`;
+    f.style.height = h + 'px';
+    const warn = r.fs <= w.CARD_MIN_FS + 4;
+    m.innerHTML = `<b>${card.type}${note?' · '+note:''}</b>
+      字級 <span class="fs ${warn?'warn':''}">${r.fs}px</span>${r.overflow?' <b style="color:#C33">溢出！需拆卡</b>':''}
+      ${card.evidence?`<div class="ev">${card.evidence}</div>`:''}`;
+  };
+  return wrap;
+}
+
+function draw(){
+  if(!DATA) return;
+  sec1.textContent = `第一篇：介紹（${DATA.cards.length} 張卡）`;
+  main.innerHTML=''; stress.innerHTML='';
+  DATA.cards.forEach(c => main.appendChild(cell(c, DATA.ctx)));
+  DATA._stress.forEach(c => stress.appendChild(cell(c, DATA.ctx, '極端值')));
+}
+
+fetch('../samples/kaggle-day1-intro.json').then(r=>r.json()).then(d=>{DATA=d; draw();})
+  .catch(()=>{ document.body.insertAdjacentHTML('afterbegin',
+    '<p style="color:#C33;font-size:13px">讀不到 samples/kaggle-day1-intro.json —— 請用「預覽版型.bat」開啟（需要本機小伺服器）</p>'); });
+</script>
+</body>
+</html>

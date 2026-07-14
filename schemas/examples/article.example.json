@@ -1,0 +1,34 @@
+{
+  "schema_version": "2.0",
+  "generated_at": "2026-07-13T01:30:00+08:00",
+  "source": {
+    "slug": "how-i-use-obsidian-claude-cowork-to-run-my-life",
+    "title": "How I Use Obsidian + Claude Cowork to Run My Life",
+    "author": "Linking Your Thinking with Nick Milo",
+    "url": "https://www.youtube.com/watch?v=rRa9td4oe7k",
+    "published_at": "2026-06-05",
+    "file": "C:\\Users\\HMG\\Documents\\Obsidian Vault\\Clippings\\example.md"
+  },
+  "origin": "video_transcript",
+  "language": "en",
+  "word_count": 1758,
+  "paragraphs": [
+    {
+      "index": 0,
+      "text": "This is my AIOS, Obsidian, Claude, and all the pieces that you need to bring them together. By the end of this video, you'll know how I use this system, the actual AI-enhanced skills I use, and how you can set up your own system that's both future-proof and works with any AI tool instead of locking you in to Claude, Codex, Gemini, or Frank. Hi, I'm Nick Milo, and yes, I'm a real person, and I help you create an idea verse, a home for capturing and using your best thinking. My AI operating system, it has three layers. The first one is my idea verse, which is my own thoughts."
+    },
+    {
+      "index": 1,
+      "text": "The real goal is that you want to own your ideas and thinking, and your AI workflows, and then you just want to rent the actual AI tool itself. ChatGPT, that was the default not long ago, and today it's Claude. Okay, great. Do we really think it's going to be one of those two in two years? It might be, but it might just as well be something else. And as long as your files can travel with you, your AI can just be a layer that you swap out, eventually to a local model, I hope, which is where I think all this is going eventually, probably powered by Apple's silicon on device. But, what do I know?"
+    },
+    {
+      "index": 2,
+      "text": "They won't be precise because it doesn't know where to go and it doesn't know how to get relevancy fast. But give it a map and it can figure out which files are actually relevant. It can isolate those, load them into its context, skip the rest. The third key map is the skill map. The skill map gives very clear instructions about what skills exist for your AI, what they do, and exactly when AI should use them. And this is where I want to be really direct about something."
+    },
+    {
+      "index": 3,
+      "text": "Keep your skills here, in your own system, in your own notes, and not in Claude's or any other AI tools."
+    }
+  ],
+  "body": "This is my AIOS, Obsidian, Claude, and all the pieces that you need to bring them together. By the end of this video, you'll know how I use this system, the actual AI-enhanced skills I use, and how you can set up your own system that's both future-proof and works with any AI tool instead of locking you in to Claude, Codex, Gemini, or Frank. Hi, I'm Nick Milo, and yes, I'm a real person, and I help you create an idea verse, a home for capturing and using your best thinking. My AI operating system, it has three layers. The first one is my idea verse, which is my own thoughts.\n\nThe real goal is that you want to own your ideas and thinking, and your AI workflows, and then you just want to rent the actual AI tool itself. ChatGPT, that was the default not long ago, and today it's Claude. Okay, great. Do we really think it's going to be one of those two in two years? It might be, but it might just as well be something else. And as long as your files can travel with you, your AI can just be a layer that you swap out, eventually to a local model, I hope, which is where I think all this is going eventually, probably powered by Apple's silicon on device. But, what do I know?\n\nThey won't be precise because it doesn't know where to go and it doesn't know how to get relevancy fast. But give it a map and it can figure out which files are actually relevant. It can isolate those, load them into its context, skip the rest. The third key map is the skill map. The skill map gives very clear instructions about what skills exist for your AI, what they do, and exactly when AI should use them. And this is where I want to be really direct about something.\n\nKeep your skills here, in your own system, in your own notes, and not in Claude's or any other AI tools."
+}

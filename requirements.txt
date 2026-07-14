@@ -1,0 +1,17 @@
+# Dependencies. ASCII only -- pip reads this with the system codepage on Windows
+# (cp950 for zh-TW), so any UTF-8 Chinese here makes pip die with UnicodeDecodeError.
+# Explanations live in README.md instead.
+
+# contract / schema validation
+jsonschema>=4.21
+
+# stage 1 ingest: no deps (frontmatter + markdown stripping done with regex)
+
+# stage 2/4 analyze + compose: LLM via plain REST, no SDK
+python-dotenv>=1.0
+
+# stage 3 render: headless browser screenshots
+playwright>=1.44
+
+# dev
+pytest>=8.0

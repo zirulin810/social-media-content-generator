@@ -1,0 +1,13 @@
+# 依賴（安裝.bat 會重建）
+.venv/
+
+# 產物（重跑就有）
+out/
+
+# 祕密
+.env
+
+# 快取
+__pycache__/
+*.pyc
+.pytest_cache/

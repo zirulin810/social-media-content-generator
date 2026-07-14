@@ -1,0 +1,152 @@
+{
+  "schema_version": "3.0",
+  "generated_at": "2026-07-13T01:35:00+08:00",
+  "model": "gemini-2.5-flash",
+  "source": {
+    "slug": "how-i-use-obsidian-claude-cowork-to-run-my-life",
+    "title": "How I Use Obsidian + Claude Cowork to Run My Life",
+    "author": "Linking Your Thinking with Nick Milo",
+    "url": "https://www.youtube.com/watch?v=rRa9td4oe7k",
+    "published_at": "2026-06-05",
+    "file": "C:\\Users\\HMG\\Documents\\Obsidian Vault\\Clippings\\example.md"
+  },
+  "summary": [
+    "AI 作業系統分三層：自己的想法、給 AI 讀的地圖、可替換的 AI 工具",
+    "把筆記留在自己手上，AI 工具只是租來的一層，隨時可換掉",
+    "AI 在大筆記庫裡會亂找，給它地圖才找得準",
+    "技能要存在自己的筆記裡，不要存在 AI 工具裡"
+  ],
+  "posts": [
+    {
+      "angle": "別把你的東西鎖進 AI 工具",
+      "hook": "工具兩年後可能就換了，你的筆記不該跟著陪葬",
+      "cards": [
+        {
+          "type": "point",
+          "title": "擁有想法，租用工具",
+          "body": "要擁有的是你的想法、你的筆記、你的 AI 工作流；AI 工具本身只是租來的一層，換掉就好",
+          "evidence": [
+            {
+              "para_index": 1,
+              "source_text": "you want to own your ideas and thinking, and your AI workflows, and then you just want to rent the actual AI tool itself"
+            }
+          ]
+        },
+        {
+          "type": "contrast",
+          "title": "技能存哪裡",
+          "wrong": {
+            "text": "存在 Claude 或其他 AI 工具裡",
+            "evidence": [
+              {
+                "para_index": 3,
+                "source_text": "not in Claude's or any other AI tools"
+              }
+            ]
+          },
+          "right": {
+            "text": "存在自己的系統、自己的筆記裡",
+            "evidence": [
+              {
+                "para_index": 3,
+                "source_text": "Keep your skills here, in your own system, in your own notes"
+              }
+            ]
+          }
+        },
+        {
+          "type": "point",
+          "title": "檔案能跟著你走",
+          "body": "只要檔案能帶著走，AI 就只是一層可以抽換的東西，甚至將來換成本機模型也行",
+          "evidence": [
+            {
+              "para_index": 1,
+              "source_text": "as long as your files can travel with you, your AI can just be a layer that you swap out"
+            }
+          ]
+        },
+        {
+          "type": "quote",
+          "text": "擁有你的想法，租用 AI 工具",
+          "verbatim": false,
+          "evidence": [
+            {
+              "para_index": 1,
+              "source_text": "you want to own your ideas and thinking, and your AI workflows, and then you just want to rent the actual AI tool itself"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        "第二大腦",
+        "AI 工作流",
+        "資料自主"
+      ],
+      "hashtags": [
+        "#第二大腦",
+        "#Obsidian",
+        "#AI工作流",
+        "#資料自主"
+      ]
+    },
+    {
+      "angle": "給 AI 一張地圖",
+      "hook": "沒有地圖，它只能在你的筆記庫裡瞎猜",
+      "cards": [
+        {
+          "type": "point",
+          "title": "沒地圖就找不準",
+          "body": "AI 不知道該去哪、也不知道怎麼快速找到相關的東西，結果就是不精準",
+          "evidence": [
+            {
+              "para_index": 2,
+              "source_text": "They won't be precise because it doesn't know where to go and it doesn't know how to get relevancy fast."
+            }
+          ]
+        },
+        {
+          "type": "steps",
+          "title": "地圖怎麼發揮作用",
+          "steps": [
+            {
+              "text": "給它地圖，它才知道哪些檔案相關",
+              "evidence": [
+                {
+                  "para_index": 2,
+                  "source_text": "But give it a map and it can figure out which files are actually relevant."
+                }
+              ]
+            },
+            {
+              "text": "把相關的挑出來載入，其餘略過",
+              "evidence": [
+                {
+                  "para_index": 2,
+                  "source_text": "It can isolate those, load them into its context, skip the rest."
+                }
+              ]
+            },
+            {
+              "text": "再給一張技能地圖：有哪些技能、何時該用",
+              "evidence": [
+                {
+                  "para_index": 2,
+                  "source_text": "The skill map gives very clear instructions about what skills exist for your AI, what they do, and exactly when AI should use them."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "topics": [
+        "AI 工作流",
+        "Obsidian"
+      ],
+      "hashtags": [
+        "#Obsidian",
+        "#AI工作流",
+        "#知識管理"
+      ]
+    }
+  ]
+}

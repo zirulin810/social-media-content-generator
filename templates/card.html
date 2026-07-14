@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>card</title>
+<link rel="stylesheet" href="card.css">
+</head>
+<!-- data-theme: a（編輯大字）/ b（深色螢光）；data-ratio: 1x1 / 4x5
+     渲染器（render_cards.py）載入這頁 → 注入 CARD 與 CTX → 呼叫 renderCard() → 截圖 -->
+<body data-theme="b" data-ratio="1x1" style="--fs:64px">
+<script src="card.js"></script>
+<script>
+  // 沒有注入資料時，顯示一張示範卡（方便直接雙擊打開檢查版型）
+  if (!window.CARD) {
+    window.CARD = { type: 'point', title: '模型只佔 10%',
+      body: '一個 agent = 模型 + harness。剩下 90% 是沙箱、調度、可觀測性——那些防止它**走偏**的骨架。' };
+    window.CTX = { author: 'Kaggle', handle: '@your_handle', series: 'DAY 1' };
+  }
+  renderCard(window.CARD, window.CTX);
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+/* 社群圖卡版型 — 雙主題
+ *
+ * 主題切換：<body data-theme="a">（編輯大字）或 data-theme="b"（深色螢光）
+ * 尺寸切換：<body data-ratio="1x1">（1080×1080）或 data-ratio="4x5"（1080×1350）
+ *
+ * **這裡不寫死任何字級。** 字級由 card.js 的 autofit 二分搜尋決定——
+ * 內容多寡不固定（2 步 vs 5 步、40 字 vs 120 字），版型要去適應內容，不是反過來。
+ * 這裡只定「最大 / 最小」的邊界，中間讓程式找。
+ */
+
+/* ---------- 主題 A：編輯大字 ---------- */
+[data-theme="a"] {
+  --bg:        #F7F5F1;   /* 米白紙感 */
+  --ink:       #141414;
+  --ink-soft:  #5C5A55;
+  --ink-mute:  #9C978E;
+  --accent:    #B8482F;   /* 磚紅，只用在「錯」與強調 */
+  --rule:      rgba(20,20,20,.15);
+  --hi-bg:     transparent;
+  --hi-ink:    var(--accent);
+  --font:      "Noto Serif TC", "Source Han Serif TC", "Songti TC", Georgia, serif;
+  --font-ui:   "Noto Sans TC", "PingFang TC", sans-serif;
+  --pad:       9%;
+}
+
+/* ---------- 主題 B：深色螢光（預設） ---------- */
+[data-theme="b"] {
+  --bg:        #0E1116;
+  --ink:       #E8EAED;
+  --ink-soft:  #98A2B3;
+  --ink-mute:  #4A5567;
+
+  /* ⚠️ 螢光色是「重點」的專屬語言。
+   * 只准用在：mark（重點字）、封面數字、金句的短線。
+   * **結構元素（步驟號碼、對照的 ✓✗）一律不准碰它**——
+   * 否則讀者分不出「哪個是內容重點」和「哪個是版面裝飾」。
+   * 這是 Human 在第一版看出來的：打勾的螢光底跟句子裡的重點混在一起。 */
+  --accent:    #D9FF3D;   /* 螢光黃綠 —— 只給重點 */
+
+  /* 結構元素的色：中性、語意化，不搶戲 */
+  --chip-bg:   #1C2430;   /* 步驟號碼 */
+  --chip-ink:  #E8EAED;
+  --chip-line: #2E3A4A;
+  --ok-bg:     #16261B;   /* 對照：正確 */
+  --ok-ink:    #7BE8A3;
+  --no-bg:     #2A1518;   /* 對照：錯法 */
+  --no-ink:    #FF8A7A;
+
+  --rule:      rgba(255,255,255,.10);
+  --hi-bg:     var(--accent);
+  --hi-ink:    #0E1116;
+  --font:      "Noto Sans TC", "PingFang TC", sans-serif;
+  --font-ui:   var(--font);
+  --pad:       9%;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  width: 1080px;
+  height: 1080px;                       /* data-ratio="4x5" 時覆寫 */
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body[data-ratio="4x5"] { height: 1350px; }
+
+.card { flex:1; display:flex; flex-direction:column; padding: var(--pad); position:relative; }
+
+/* 眉標（卡型標籤） */
+.kicker {
+  font-family: var(--font-ui);
+  font-size: 22px; font-weight: 800; letter-spacing: .16em;
+  color: var(--ink-mute); text-transform: uppercase;
+}
+[data-theme="a"] .kicker { color: var(--ink-mute); }
+[data-theme="b"] .kicker { color: var(--ink-mute); }
+
+/* 頁尾（原作者 — 版權紅線，每張都要有） */
+.footer {
+  margin-top: auto;
+  font-family: var(--font-ui);
+  font-size: 20px; letter-spacing: .06em;
+  color: var(--ink-mute);
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding-top: 28px;
+}
+
+/* 主體：autofit 會調整這裡的 --fs */
+.body { display:flex; flex-direction:column; gap: calc(var(--fs) * .55); }
+
+.title { font-size: calc(var(--fs) * 1.0); font-weight: 800; line-height: 1.3; letter-spacing: -.01em; }
+.text  { font-size: calc(var(--fs) * .62); line-height: 1.75; color: var(--ink-soft); }
+
+/* 螢光筆重點（主題 B 專用；主題 A 會變成純色字） */
+mark { background: var(--hi-bg); color: var(--hi-ink); padding: 0 .18em; border-radius: 3px; font-weight: 800; }
+[data-theme="a"] mark { background: transparent; color: var(--accent); padding: 0; }
+
+/* ---------- 封面 ---------- */
+.cover .stat { font-size: calc(var(--fs) * 2.4); font-weight: 800; line-height: .85; letter-spacing: -.04em; }
+.cover .stat small { font-size: .42em; }
+[data-theme="a"] .cover .stat { color: var(--ink); }
+[data-theme="b"] .cover .stat { color: var(--accent); }
+.cover .angle { font-size: calc(var(--fs) * 1.1); font-weight: 800; line-height: 1.28; margin-top: 20px; }
+.cover .hook  { font-size: calc(var(--fs) * .6); line-height: 1.6; color: var(--ink-soft); margin-top: 16px; }
+.cover .rule  { height: 1px; background: var(--rule); margin: 22px 0; }
+
+/* ---------- 步驟 ---------- */
+ol.steps { list-style:none; display:flex; flex-direction:column; gap: calc(var(--fs) * .42); }
+ol.steps li { display:flex; gap: calc(var(--fs) * .36); align-items:flex-start;
+              font-size: calc(var(--fs) * .62); line-height: 1.6; color: var(--ink-soft); }
+.num {
+  flex:none; font-family: var(--font-ui); font-weight: 800;
+  font-size: calc(var(--fs) * .44); line-height: 1;
+  width: calc(var(--fs) * .9); height: calc(var(--fs) * .9);
+  display:flex; align-items:center; justify-content:center; border-radius:50%;
+  margin-top: calc(var(--fs) * .1);
+}
+/* 步驟號碼是**結構**，不是重點——不吃螢光色 */
+[data-theme="a"] .num { border: 2px solid var(--ink); color: var(--ink); }
+[data-theme="b"] .num { background: var(--chip-bg); color: var(--chip-ink); border: 1px solid var(--chip-line); }
+
+/* 續卡標記（自動拆卡時右上角的 1/2、2/2） */
+.pager { font-family: var(--font-ui); font-size: 20px; font-weight: 700; color: var(--ink-mute); letter-spacing:.1em; }
+.kickrow { display:flex; justify-content:space-between; align-items:baseline; }
+
+/* ---------- 對照 ---------- */
+.vs { display:flex; flex-direction:column; gap: calc(var(--fs) * .45); }
+.vs .side { display:flex; gap: calc(var(--fs) * .35); align-items:flex-start;
+            font-size: calc(var(--fs) * .6); line-height: 1.6; }
+.vs .lab { flex:none; font-family: var(--font-ui); font-weight: 800;
+           font-size: calc(var(--fs) * .38); letter-spacing:.1em; padding: .35em .6em; border-radius:3px; }
+[data-theme="a"] .vs .wrong .lab { color:#fff; background: var(--accent); }
+[data-theme="a"] .vs .right .lab { color:#fff; background: var(--ink); }
+[data-theme="a"] .vs .wrong { color: var(--ink-soft); }
+[data-theme="a"] .vs .right { color: var(--ink); }
+/* ✓✗ 是**結構標籤**，不是重點——用語意色（紅／綠），不碰螢光 */
+[data-theme="b"] .vs .wrong .lab { color: var(--no-ink); background: var(--no-bg); }
+[data-theme="b"] .vs .right .lab { color: var(--ok-ink); background: var(--ok-bg); }
+[data-theme="b"] .vs .wrong { color: var(--ink-soft); }
+[data-theme="b"] .vs .right { color: var(--ink); }
+
+/* ---------- 金句 ---------- */
+.quote { display:flex; flex-direction:column; justify-content:center; flex:1; gap: 30px; }
+.quote .mark { width: 64px; height: 6px; background: var(--accent); }
+.quote .q { font-size: calc(var(--fs) * 1.5); font-weight: 800; line-height: 1.45; }
+
+/* ---------- 結尾 ---------- */
+.outro .src { font-size: calc(var(--fs) * .72); font-weight: 700; line-height: 1.45; }
+.outro .meta { font-size: calc(var(--fs) * .55); color: var(--ink-soft); line-height:1.6; margin-top: 14px; }
+.outro .url { font-family: var(--font-ui); font-size: calc(var(--fs) * .42); color: var(--ink-mute); margin-top: 20px; word-break: break-all; }
+.outro .handle { margin-top:auto; font-family: var(--font-ui); font-size: calc(var(--fs) * .7); font-weight: 800; color: var(--accent); }

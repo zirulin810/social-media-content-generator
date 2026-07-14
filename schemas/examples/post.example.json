@@ -1,0 +1,70 @@
+{
+  "schema_version": "3.0",
+  "generated_at": "2026-07-13T01:45:00+08:00",
+  "model": "gemini-2.5-flash",
+  "source": {
+    "slug": "how-i-use-obsidian-claude-cowork-to-run-my-life",
+    "title": "How I Use Obsidian + Claude Cowork to Run My Life",
+    "author": "Linking Your Thinking with Nick Milo",
+    "url": "https://www.youtube.com/watch?v=rRa9td4oe7k",
+    "published_at": "2026-06-05",
+    "file": "C:\\Users\\HMG\\Documents\\Obsidian Vault\\Clippings\\example.md"
+  },
+  "post_index": 2,
+  "angle": "給 AI 一張地圖",
+  "images": [
+    {
+      "path": "images/01_cover.png",
+      "role": "cover",
+      "ratio": "4:5",
+      "bytes": 380221
+    },
+    {
+      "path": "images/02_point_1.png",
+      "role": "point",
+      "ratio": "4:5",
+      "card_index": 1,
+      "bytes": 402113
+    },
+    {
+      "path": "images/03_steps_2.png",
+      "role": "steps",
+      "ratio": "4:5",
+      "card_index": 2,
+      "bytes": 415980
+    },
+    {
+      "path": "images/99_outro.png",
+      "role": "outro",
+      "ratio": "4:5",
+      "bytes": 208114
+    }
+  ],
+  "posts": [
+    {
+      "platform": "instagram",
+      "caption": "我看完 Nick Milo 這支影片，最有感的是這件事：AI 在你的筆記庫裡其實是瞎的。\n\n它不知道該去哪、也不知道怎麼快速找到相關的東西，所以給你的答案就是不精準。\n\n解法不是換更聰明的模型，是給它一張地圖——寫清楚每個資料夾放什麼、有哪些技能、什麼時候該用。它就能只挑相關的載入，其餘略過。\n\n———\n出處：《How I Use Obsidian + Claude Cowork to Run My Life》／Linking Your Thinking with Nick Milo\nhttps://www.youtube.com/watch?v=rRa9td4oe7k\n\n#Obsidian #AI工作流 #知識管理 #第二大腦 #筆記術",
+      "hashtags": [
+        "#Obsidian",
+        "#AI工作流",
+        "#知識管理"
+      ],
+      "image_paths": [
+        "images/01_cover.png",
+        "images/02_point_1.png",
+        "images/03_steps_2.png",
+        "images/99_outro.png"
+      ],
+      "attribution": "《How I Use Obsidian + Claude Cowork to Run My Life》／Linking Your Thinking with Nick Milo https://www.youtube.com/watch?v=rRa9td4oe7k"
+    },
+    {
+      "platform": "threads",
+      "caption": "AI 在你的筆記庫裡是瞎的。\n\n它不知道該去哪，也不知道怎麼快速找到相關的東西——所以答案才會不精準。給它一張地圖，它就能挑出相關的檔案載入，其餘略過。\n\n問題從來不是模型不夠聰明。\n\n出處：《How I Use Obsidian + Claude Cowork to Run My Life》／Nick Milo\nhttps://www.youtube.com/watch?v=rRa9td4oe7k",
+      "hashtags": [],
+      "image_paths": [
+        "images/02_point_1.png"
+      ],
+      "attribution": "《How I Use Obsidian + Claude Cowork to Run My Life》／Linking Your Thinking with Nick Milo https://www.youtube.com/watch?v=rRa9td4oe7k"
+    }
+  ]
+}

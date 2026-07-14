@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/自動化輸出/schemas/highlights.schema.json",
+  "title": "highlights.json",
+  "description": "階段 2 產物：依資訊密度切成 1–3 則貼文，每則由知識卡組成。每條主張各自帶原文依據。字數上限是暫定值——版型做出來後要回頭校準（見 docs/spec.md）。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "source",
+    "summary",
+    "posts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "3.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "model": {
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "summary": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 7,
+      "description": "全文核心論點，內部用（決定怎麼切貼文），不直接出現在圖卡上",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      }
+    },
+    "posts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "description": "依資訊密度切。一則貼文 = 一個論點講到能照做；素材薄就 1 則，厚就 2–3 則",
+      "items": {
+        "$ref": "#/$defs/post"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": [
+        "slug",
+        "title",
+        "author"
+      ],
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "file": {
+          "type": "string"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "原文依據。**每一條主張都要有**——這是幻覺防線的抓手。",
+      "required": [
+        "para_index",
+        "source_text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "para_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "依據出自哪一段（article.paragraphs[].index）"
+        },
+        "source_text": {
+          "type": "string",
+          "minLength": 8,
+          "description": "原文中的句子，逐字照抄。程式會驗證它確實出現在該段落裡"
+        }
+      }
+    },
+    "evidenceList": {
+      "type": "array",
+      "minItems": 1,
+      "description": "至少一條。可以跨多段——但每一段都要指名道姓",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "post": {
+      "type": "object",
+      "required": [
+        "angle",
+        "cards",
+        "hashtags"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "angle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30,
+          "description": "這則貼文的單一論點，例：「讓 AI 讀懂你的筆記庫」。封面卡的標題"
+        },
+        "hook": {
+          "type": "string",
+          "maxLength": 70,
+          "description": "封面卡的副標，一句話說清楚讀者能帶走什麼"
+        },
+        "cards": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 6,
+          "description": "內容卡（不含封面與結尾，那兩張由版型自動生成）",
+          "items": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "point",
+                  "steps",
+                  "contrast",
+                  "quote"
+                ]
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "point"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                "then": {
+                  "$ref": "#/$defs/pointCard"
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "steps"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                "then": {
+                  "$ref": "#/$defs/stepsCard"
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "contrast"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                "then": {
+                  "$ref": "#/$defs/contrastCard"
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "quote"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                "then": {
+                  "$ref": "#/$defs/quoteCard"
+                }
+              }
+            ]
+          }
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "hashtags": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "pattern": "^#\\S+$"
+          }
+        }
+      }
+    },
+    "quoteCard": {
+      "type": "object",
+      "description": "金句卡：作者的一句話。點綴用，不當主體。",
+      "required": [
+        "type",
+        "text",
+        "evidence",
+        "verbatim"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "quote"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "verbatim": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidenceList"
+        }
+      }
+    },
+    "pointCard": {
+      "type": "object",
+      "description": "重點卡：一個主張／做法 + 為什麼。這是主力卡型。",
+      "required": [
+        "type",
+        "title",
+        "body",
+        "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "point"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidenceList"
+        }
+      }
+    },
+    "stepsCard": {
+      "type": "object",
+      "description": "步驟卡：可照做的流程。**每一步各自帶依據**——步驟通常是跨段綜合的，整張卡指一個出處不夠。",
+      "required": [
+        "type",
+        "title",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "steps"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": [
+              "text",
+              "evidence"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "evidence": {
+                "$ref": "#/$defs/evidenceList"
+              }
+            }
+          }
+        }
+      }
+    },
+    "contrastCard": {
+      "type": "object",
+      "description": "對照卡：常見錯法 vs 正確做法。**兩邊各自帶依據**——錯法那邊最容易被模型腦補。",
+      "required": [
+        "type",
+        "title",
+        "wrong",
+        "right"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "contrast"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "wrong": {
+          "$ref": "#/$defs/contrastSide"
+        },
+        "right": {
+          "$ref": "#/$defs/contrastSide"
+        }
+      }
+    },
+    "contrastSide": {
+      "type": "object",
+      "required": [
+        "text",
+        "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidenceList"
+        }
+      }
+    }
+  }
+}
