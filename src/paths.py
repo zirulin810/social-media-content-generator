@@ -22,6 +22,17 @@ def out_root() -> Path:
     return PROJECT_ROOT / os.environ.get("OUT_DIR", "out")
 
 
+def source_dir() -> Path:
+    """素材放哪裡——**沒特別指定時的預設來源**（Obsidian 的 Web Clipper 剪報）。
+
+    可用環境變數覆寫：`set SOURCE_DIR=D:\\某個資料夾`
+    """
+    env = os.environ.get("SOURCE_DIR")
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / "Documents" / "Obsidian Vault" / "Clippings"
+
+
 def is_stale(product: Path, *inputs: Path) -> bool:
     """產物該不該重做？**跟它的每一個輸入比時間。**
 

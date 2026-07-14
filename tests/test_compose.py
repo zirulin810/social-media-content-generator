@@ -53,8 +53,11 @@ IMAGES = [{"path": "images/01_cover.png"}, {"path": "images/02_point_1.png"}]
 
 GOOD_HOOK = "AI 每次都要你重講一遍你是誰嗎？"  # 短、痛點、不是 angle 的複述
 
+# 合格的假正文：**2 段**（`check_body` 會擋掉黏成一坨的東西）
+GOOD_BODY = "先給 AI 一張地圖，它才知道去哪裡找。\n\n三個檔案就夠：me.md、vault map、skill map。"
 
-def fake_llm(body: str, tags: list[str] | None = None, hook: str = GOOD_HOOK):
+
+def fake_llm(body: str = GOOD_BODY, tags: list[str] | None = None, hook: str = GOOD_HOOK):
     payload: dict = {"hook": hook, "body": body}
     if tags is not None:
         payload["hashtags"] = tags
@@ -80,7 +83,9 @@ def test_both_platforms_share_one_draft() -> None:
 
     def counting(_p: str) -> str:
         calls["n"] += 1
-        return json.dumps({"hook": GOOD_HOOK, "body": "正文。", "hashtags": ["#a"]}, ensure_ascii=False)
+        return json.dumps(
+            {"hook": GOOD_HOOK, "body": GOOD_BODY, "hashtags": ["#a"]}, ensure_ascii=False
+        )
 
     hook, body, tags = draft(POST, ARTICLE, counting)
     ig = write_one("instagram", hook, body, tags, ARTICLE, IMAGES)
@@ -93,6 +98,58 @@ def test_both_platforms_share_one_draft() -> None:
 
 
 # --- hook：機器驗得了的部分 --------------------------------------------------
+
+
+def test_a_good_hook_is_not_killed_just_for_sharing_keywords() -> None:
+    """**判斷器太嚴，模型就只能亂猜——而它猜不到我心裡想的那條線。**
+
+    第一版用「字元集合重疊率 ≥ 0.7」判斷「hook 是不是複述 angle」。
+    但 hook 跟 angle 講的**本來就是同一件事**，共用關鍵字是必然的。
+    於是它連殺兩個好 hook，模型重寫三次都過不了關：
+
+        angle「讓 AI 讀懂你的筆記庫」
+        hook 「AI 每次都要你重講一遍你是誰？」  ← 痛點，不是摘要，卻被判複述
+
+    改成只抓「幾乎一模一樣」（angle 整句被塞進 hook，或相似度 ≥ 0.75）。
+    """
+    assert not restates_angle(
+        "AI 每次都要你重講一遍你是誰？試試這樣讓它讀懂你的筆記。", "讓 AI 讀懂你的筆記庫"
+    )
+    assert not restates_angle("AI 內容像洪水？用「槓鈴策略」讓它成為你的超能力。", "用槓鈴策略駕馭 AI")
+    assert not restates_angle("你是不是也把舊筆記全部匯進 Obsidian 了？", "避免 Obsidian 新手常見錯誤")
+
+
+def test_the_limits_are_a_ceiling_not_a_target() -> None:
+    """**兩個數字，性質不同。** 這是今天學了五次的教訓。
+
+    第一版：hook 硬上限 30 字、段落硬上限 110 字。
+    實跑時模型寫 31、33、35、111、115、118——**全部差一點點**，
+    重寫三次都跨不過我那條隨手畫的線，然後我照樣出貨。
+    **三次 LLM 呼叫，換來零改善。**
+
+    因為我又在叫它「數中文字」——那是它做不到的事。
+    """
+    from src.compose.write_post import (
+        HOOK_MAX_CHARS,
+        HOOK_TARGET_CHARS,
+        PARA_MAX_CHARS,
+        PARA_TARGET_CHARS,
+        check_body,
+    )
+
+    assert HOOK_TARGET_CHARS < HOOK_MAX_CHARS, "目標必須比硬上限鬆——不然目標就是上限"
+    assert PARA_TARGET_CHARS < PARA_MAX_CHARS
+
+    # **驗行為，不驗數字。** 模型寫「稍微超過目標」是常態（它不會數中文字），
+    # 那不該觸發重寫——**不然就會發生實跑那種事：重寫三次、零改善、照樣出貨。**
+    over_hook = "字" * (HOOK_TARGET_CHARS + 8)
+    assert not check_hook(over_hook, POST, SOURCE), "稍微超過目標的 hook 不該被擋"
+
+    over_para = "字" * (PARA_TARGET_CHARS + 15)
+    assert not check_body(f"{over_para}\n\n第二段。"), "稍微超過目標的段落不該被擋"
+
+    text = (PROMPT_DIR / "caption.md").read_text(encoding="utf-8")
+    assert "判準是句數，不是字數" in text, "要用它做得到的方式下指令（句數），不是字數"
 
 
 def test_a_hook_that_only_restates_the_angle_is_rejected() -> None:
@@ -124,15 +181,38 @@ def test_a_bad_hook_gets_rewritten() -> None:
     def flaky(_p: str) -> str:
         calls["n"] += 1
         hook = POST["angle"] if calls["n"] == 1 else GOOD_HOOK  # 第一次直接複述 angle
-        return json.dumps({"hook": hook, "body": "正文", "hashtags": ["#a"]}, ensure_ascii=False)
+        return json.dumps(
+            {"hook": hook, "body": GOOD_BODY, "hashtags": ["#a"]}, ensure_ascii=False
+        )
 
     hook, _, _ = draft(POST, ARTICLE, flaky)
     assert calls["n"] == 2, "hook 只是複述 angle 時，應該請它重寫"
     assert hook == GOOD_HOOK
 
 
-def test_a_hook_that_is_too_long_is_not_a_hook() -> None:
-    assert HOOK_MAX_CHARS <= 40, "超過這個長度就不是鉤子，是摘要"
+def test_a_hook_is_one_sentence_not_a_character_count() -> None:
+    """**Human 2026-07-14：「hook 幹嘛定字數，就一句話不就得了。」他是對的。**
+
+    「一句話」是**結構**——機器看得出來（不換行、句末標點只有一個）。
+    「30 字」是**我對那個結構的猜測**，而那個猜測開始咬人：
+    模型寫 31–35 字，重寫三次跨不過去，我照樣出貨。**三次 LLM 呼叫，零改善。**
+
+    **驗結構，不要猜數字。**
+    而真的需要一個上限時，那個數字也不該是我猜的——
+    **hook 必須在 IG 折疊前看得完，而折疊線是 Instagram 定的（125 字）。**
+    """
+    from src.compose.write_post import IG_FOLD_CHARS
+
+    assert HOOK_MAX_CHARS == IG_FOLD_CHARS, "硬上限要有來歷：折疊線是 IG 定的，不是我猜的"
+
+    # 這兩句實跑時被舊規則（30 字）擋下來過——它們是好 hook
+    assert not check_hook("你是不是也把舊筆記全部匯進 Obsidian，結果更難找？", POST, SOURCE)
+    assert not check_hook("讓 AI 直接讀取你的 Obsidian 筆記，保有資料隱私與所有權。", POST, SOURCE)
+
+    # 該擋的是「不只一句話」——那才是「摘要」的真正特徵
+    assert check_hook("Obsidian 不會內建 AI。這是刻意的，而且跟你的隱私有關。", POST, SOURCE)
+    assert check_hook("AI 讀不懂你的筆記庫。先給它一張地圖。", POST, SOURCE)
+    assert check_hook("第一行\n第二行", POST, SOURCE)
 
 
 def test_the_hook_leads_the_caption() -> None:
@@ -143,12 +223,40 @@ def test_the_hook_leads_the_caption() -> None:
 # --- 程式該保證的事 ---------------------------------------------------------
 
 
-def test_attribution_is_added_by_the_program_not_the_model() -> None:
-    """**紅線：不省出處。** 這條不能靠模型記得——它總有一天會忘。"""
-    ig = one("instagram", "這支影片的整理", ["#筆記"])
-    assert SOURCE["url"] in ig["caption"]
-    assert SOURCE["title"] in ig["caption"] and SOURCE["author"] in ig["caption"]
-    assert ig["attribution"]
+def test_a_source_without_an_author_still_works() -> None:
+    """**作者選填，來源必填。**（Human 2026-07-14）
+
+    Google 的課程、官方文件、白皮書——很多素材本來就沒有個人作者。
+    硬要一個，只會逼人瞎填。
+
+    但**出處紅線沒鬆**：標題與連結還在，結尾卡照印。
+    沒有作者就**不印那一段**，不要留一個孤零零的「｜」——那看起來像出錯。
+    """
+    no_author = {k: v for k, v in SOURCE.items() if k != "author"}
+    attrib = attribution(no_author)
+    assert attrib.startswith("原文：How I Use Obsidian")
+    assert "｜" not in attrib, "沒有作者就不要留分隔線"
+    assert no_author["url"] in attrib, "但出處還在"
+
+    p = build_prompt(POST, {"source": no_author, "origin": "article"})
+    assert "作者 （沒有標明作者）" in p, "prompt 要明講「沒有作者」，不要留一個空白讓模型去腦補"
+
+
+def test_the_caption_does_not_repeat_the_attribution() -> None:
+    """**出處在結尾卡上，caption 不用再放一次。**
+
+    Human 2026-07-14：「文案當中不用放來源跟作者，圖片最後一張其實就有了。」
+
+    而且那個網址在 IG 上根本不能點——貼在文案裡只是佔掉 142 字，
+    **正文預算的三分之一**。
+
+    紅線沒鬆：`post.json` 仍留著 `attribution` 欄位，
+    而「出處不能消失」由 `collect_images()` 保證（沒有 outro 卡就報錯）。
+    """
+    ig = one("instagram", "第一段。\n\n第二段。", ["#筆記"])
+    assert SOURCE["url"] not in ig["caption"], "網址不該再出現在 caption 裡"
+    assert SOURCE["title"] not in ig["caption"]
+    assert ig["attribution"], "但 post.json 仍要留著出處（紀錄用）"
 
 
 def test_emoji_are_stripped_by_the_program() -> None:
@@ -241,7 +349,7 @@ def test_image_paths_follow_the_render_output() -> None:
 
 
 def test_the_program_owns_the_skeleton() -> None:
-    assert assemble("正文", "原文：X｜Y", ["#a"], hook="鉤子") == "鉤子\n\n正文\n\n原文：X｜Y\n\n#a"
+    assert assemble("正文", ["#a"], hook="鉤子") == "鉤子\n\n正文\n\n#a"
     assert attribution(SOURCE).startswith("原文：How I Use Obsidian｜Nick Milo")
     assert clean("这个软件 🔥") == "這個軟體"
 
@@ -267,6 +375,106 @@ def test_prompt_says_video_not_article_for_transcripts() -> None:
     """語氣要對：影片轉出的文章要說「這支影片」，不是「這篇文章」。"""
     assert "這支影片" in build_prompt(POST, ARTICLE)
     assert "這篇文章" in build_prompt(POST, {"source": SOURCE, "origin": "article"})
+
+
+def test_the_caption_does_not_narrate_a_video_the_reader_cannot_see() -> None:
+    """**讀者看不到那支影片。他滑到的是輪播圖。**
+
+    實跑出來的文案長這樣：
+        「這支影片展示了如何用 AI 技能系統自動化工作流。」
+        「影片建議，一開始保持簡單，專注於連結筆記。」
+        「就像作者所說，Obsidian 只是看著你電腦上的一個資料夾。」
+
+    **每一句都在幫一個讀者看不到的東西做導覽。** 他不會為了看懂 caption
+    去點開一支 40 分鐘的英文影片。
+
+    我會犯這個錯，是因為 prompt 從頭到尾都在叫模型「幫我整理**這支影片**」——
+    **它就真的變成影片解說員了。**
+
+    誠實由文末的出處標註負責，不必在每句話裡再提醒讀者「這是別人講的」。
+    """
+    from src.compose.write_post import narrates_the_source
+
+    for bad in (
+        "這支影片展示了如何自動化工作流",
+        "影片建議一開始保持簡單",
+        "就像作者所說，你擁有你的資料",         # 「作者所說」——第一版的 regex 只寫了「作者說」
+        "就像影片中說的，Obsidian 只是一個資料夾",
+        "正如 Nick Milo 所說，擁有你的想法",   # 人名夾在中間
+        "這篇文章點出四個常見錯誤",
+    ):
+        assert narrates_the_source(bad), f"沒抓到：{bad}"
+
+    # **誤殺比漏抓危險**：這些是「直接講內容」的正常句子，不准被擋
+    for ok in (
+        "一開始把外掛裝好裝滿，反而會分散你學核心功能的注意力。",
+        "Obsidian 只是看著你電腦上的一個資料夾。你的筆記從頭到尾都在你手上。",
+        "把技能存在自己的筆記裡，換工具就不必重來。",
+    ):
+        assert not narrates_the_source(ok), f"誤殺：{ok}"
+
+    text = (PROMPT_DIR / "caption.md").read_text(encoding="utf-8")
+    assert "不要當解說員" in text
+    assert "讀者看不到" in text
+
+
+def test_the_shared_body_must_fit_the_smaller_platform() -> None:
+    """**兩個平台共用一份文案，所以它必須塞得進比較小的那個框**（Threads 500 字）。
+
+    我原本沒算這筆帳：出處 145 字 + hook 30 字 → 正文只剩 320 字，
+    但我同時叫模型寫「2–3 段、每段最多 160 字」＝ 最多 480 字。
+    **規格從一開始就自相矛盾**，於是程式在下游把 Threads 版砍短，
+    「共用一份文案」就這樣被我自己的規格拆散了。
+
+    **與其讓下游收拾，不如讓上游寫得下。**
+    （出處拿掉之後預算寬鬆多了，但這條測試守的是「規格必須自洽」。）
+    """
+    from src.compose.write_post import PARA_MAX_CHARS, body_budget, check_body
+
+    budget = body_budget(GOOD_HOOK)
+    assert budget > 0
+
+    # 規格必須自洽：段落上限 × 最多段數，不能超過 Threads 給的預算
+    assert PARA_MAX_CHARS * 3 <= budget, "段落規格跟 Threads 的預算打架"
+
+    assert check_body("第一段。\n\n第二段。", budget=5), "超過預算就要退回重寫"
+    assert not check_body(GOOD_BODY, budget=budget)
+
+
+def test_the_body_must_be_paragraphs_not_one_lump() -> None:
+    """**「2–3 段」是可以驗的，別只靠叮嚀。**
+
+    實跑時它把整篇擠成一段 300 字的東西，Threads 還因此被砍掉尾巴。
+    「這段話好不好」機器答不了；但「有沒有分段」「有沒有一坨 300 字」——**機器驗得出來。**
+    """
+    from src.compose.write_post import PARA_MAX_CHARS, check_body
+
+    assert check_body("字" * 300), "整篇一坨，應該被抓"
+    assert check_body("第一段。\n\n" + "字" * (PARA_MAX_CHARS + 1)), "單一段落過長，應該被抓"
+    assert not check_body("第一段講清楚 hook 的承諾。\n\n第二段展開細節，講得更具體。")
+
+
+def test_the_body_does_not_hook_the_reader_a_second_time() -> None:
+    """hook 已經在鉤讀者了，正文不必再鉤一次。
+
+    實跑時正文又問了一句「你是不是也覺得知識很難累積？」——
+    **而卡片根本沒講過這件事**，那是憑空編讀者的經驗。
+    """
+    from src.compose.write_post import check_body
+
+    assert check_body("你是不是也覺得知識很難累積？\n\n所以你需要自動化。")
+    assert check_body("想像一下，AI 每天早上幫你寫好簡報。\n\n這就是每日簡報技能。")
+    assert not check_body("把外掛裝好裝滿會分散注意力。\n\n先專注在連結筆記上。")
+
+
+def test_the_body_reads_like_prose_not_a_bullet_list() -> None:
+    """「一句一行」把文案變成**沒有項目符號的條列**——每句講一件不相干的事，東落西落。
+
+    那條規則本來是為了 Threads 的可讀性訂的，結果毀了整段的連貫性。
+    """
+    text = (PROMPT_DIR / "caption.md").read_text(encoding="utf-8")
+    assert "不要一句一行" in text
+    assert "沒有項目符號的條列" in text
 
 
 def test_the_prompt_forbids_putting_a_hat_on_the_reader() -> None:

@@ -60,7 +60,7 @@
       "required": [
         "slug",
         "title",
-        "author"
+        "url"
       ],
       "properties": {
         "slug": {
@@ -73,7 +73,8 @@
         },
         "author": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "選填。這是誰講的可以不知道（Google 課程、官方文件、白皮書常常沒有個人作者），但這是從哪來的不能不知道——少了作者只是資訊不全，少了 url 就是沒標來源的轉貼。"
         },
         "url": {
           "type": "string",
@@ -82,7 +83,8 @@
         "file": {
           "type": "string"
         }
-      }
+      },
+      "description": "出處。**author 選填，url 必填。**這是誰講的可以不知道（Google 課程、官方文件、白皮書常常沒有個人作者），但這是從哪來的不能不知道——少了作者只是資訊不全，少了 url 就是沒標來源的轉貼。"
     },
     "image": {
       "type": "object",

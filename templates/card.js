@@ -26,9 +26,13 @@ const hi = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<mark>$1</mark>');
  * 用機制擋掉，不要指望模型自己遵守約定。 */
 const plain = (s) => esc(String(s ?? '').replace(/\*\*(.+?)\*\*/g, '$1'));
 
+/* 作者可能沒有（Google 課程、官方文件、白皮書常常沒有個人作者）。
+ * **沒有就整個不印**——不要留一個孤零零的「—」在那裡，那看起來像出錯。
+ * （出處不會因此消失：結尾卡仍然印標題與連結。） */
+const byline = (ctx) => (ctx.author ? `— ${esc(ctx.author)}` : '');
+
 function footer(card, ctx) {
-  const author = esc(ctx.author || '');
-  return `<div class="footer"><span></span><span>— ${author}</span></div>`;
+  return `<div class="footer"><span></span><span>${byline(ctx)}</span></div>`;
 }
 
 function kickrow(label, pager) {
@@ -44,7 +48,7 @@ const TEMPLATES = {
       ${c.stat ? `<div class="stat">${esc(c.stat)}</div>` : ''}
       <div class="angle">${plain(c.angle)}</div>
       ${c.hook ? `<div class="hook">${plain(c.hook)}</div>` : ''}
-      <div class="footer"><span>${esc(ctx.handle || '')}</span><span>— ${esc(ctx.author || '')}</span></div>
+      <div class="footer"><span>${esc(ctx.handle || '')}</span><span>${byline(ctx)}</span></div>
     </div>`,
 
   point: (c, ctx) => `
@@ -92,12 +96,18 @@ const TEMPLATES = {
       ${footer(c, ctx)}
     </div>`,
 
+  /* 結尾卡＝整則貼文唯一的出處（caption 不再帶）。
+   * **標題與連結一定要有；作者沒有就不印那一行**，不要留空行或孤零零的破折號。 */
   outro: (c, ctx) => `
     <div class="card outro">
       <div class="kicker">出處</div>
       <div class="body" style="margin-top:36px">
         <div class="src">${esc(ctx.title)}</div>
-        <div class="meta">${esc(ctx.author)}${ctx.series ? `<br>${esc(ctx.series)}` : ''}</div>
+        ${ctx.author || ctx.series
+          ? `<div class="meta">${esc(ctx.author || '')}${
+              ctx.author && ctx.series ? '<br>' : ''
+            }${esc(ctx.series || '')}</div>`
+          : ''}
         <div class="url">${esc(ctx.url)}</div>
       </div>
       <div class="handle">${esc(ctx.handle || '')}</div>

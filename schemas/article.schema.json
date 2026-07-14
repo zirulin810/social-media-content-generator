@@ -4,23 +4,50 @@
   "title": "article.json",
   "description": "階段 1 產物：本機 markdown 正規化後的文章（段落已編號，供金句定錨）",
   "type": "object",
-  "required": ["schema_version", "generated_at", "source", "origin", "language", "paragraphs", "body"],
+  "required": [
+    "schema_version",
+    "generated_at",
+    "source",
+    "origin",
+    "language",
+    "paragraphs",
+    "body"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "const": "2.0" },
-    "generated_at": { "type": "string", "format": "date-time" },
-    "source": { "$ref": "#/$defs/source" },
+    "schema_version": {
+      "const": "2.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
     "origin": {
-      "enum": ["article", "video_transcript"],
+      "enum": [
+        "article",
+        "video_transcript"
+      ],
       "description": "文章原生，或由影片轉出的文章。影響文案語氣（「這篇文章」vs「這支影片」）"
     },
-    "language": { "type": "string", "minLength": 2, "description": "BCP-47，例：zh-TW" },
-    "word_count": { "type": "integer", "minimum": 1 },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "description": "BCP-47，例：zh-TW"
+    },
+    "word_count": {
+      "type": "integer",
+      "minimum": 1
+    },
     "paragraphs": {
       "type": "array",
       "minItems": 3,
       "description": "正規化後的段落；index 從 0 起算且連續。index 是金句的定錨點，定了就不能重排",
-      "items": { "$ref": "#/$defs/paragraph" }
+      "items": {
+        "$ref": "#/$defs/paragraph"
+      }
     },
     "body": {
       "type": "string",
@@ -31,7 +58,11 @@
   "$defs": {
     "source": {
       "type": "object",
-      "required": ["slug", "title", "author"],
+      "required": [
+        "slug",
+        "title",
+        "url"
+      ],
       "additionalProperties": false,
       "properties": {
         "slug": {
@@ -39,24 +70,48 @@
           "pattern": "^[a-z0-9][a-z0-9-]*$",
           "description": "輸出資料夾名，由檔名 slugify 而來"
         },
-        "title": { "type": "string", "minLength": 1 },
-        "author": { "type": "string", "minLength": 1 },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "description": "選填。這是誰講的可以不知道（Google 課程、官方文件、白皮書常常沒有個人作者），但這是從哪來的不能不知道——少了作者只是資訊不全，少了 url 就是沒標來源的轉貼。"
+        },
         "url": {
           "type": "string",
           "format": "uri",
           "description": "原文連結。若文章由影片轉出，這裡放原影片網址——出處要指回真來源"
         },
-        "file": { "type": "string", "minLength": 1, "description": "本機 md 檔絕對路徑" },
-        "published_at": { "type": "string" }
-      }
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "本機 md 檔絕對路徑"
+        },
+        "published_at": {
+          "type": "string"
+        }
+      },
+      "description": "出處。**author 選填，url 必填。**這是誰講的可以不知道（Google 課程、官方文件、白皮書常常沒有個人作者），但這是從哪來的不能不知道——少了作者只是資訊不全，少了 url 就是沒標來源的轉貼。"
     },
     "paragraph": {
       "type": "object",
-      "required": ["index", "text"],
+      "required": [
+        "index",
+        "text"
+      ],
       "additionalProperties": false,
       "properties": {
-        "index": { "type": "integer", "minimum": 0 },
-        "text": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
       }
     }
   }

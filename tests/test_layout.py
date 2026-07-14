@@ -276,6 +276,22 @@ def test_render_reruns_when_the_source_is_newer() -> None:
     assert "TEMPLATE_DIR" in src, "版型也是輸入——改了 card.css 就該重出圖"
 
 
+def test_the_code_itself_counts_as_an_input() -> None:
+    """**程式碼也是輸入。**
+
+    2026-07-14：`is_stale` 只比對資料與 prompt。於是我改了 `write_post.py` 的 hook 邏輯，
+    重跑文案 → 它說「沿用既有文案（輸入沒變）」。
+
+    Human：「看起來你的新舊偵測壞了。」——那一次其實是對的（我只改了顯示），
+    **但漏洞是真的**：改了產生邏輯，產物就過期了，而偵測完全看不到。
+
+    你會拿到一份「**用舊邏輯生成、看起來很新**」的東西——那是最難發現的一種壞掉。
+    """
+    for mod in ("src/compose/write_post.py", "src/render/render_cards.py"):
+        src = (PROJECT_ROOT / mod).read_text(encoding="utf-8")
+        assert "Path(__file__).parent" in src, f"{mod} 沒把自己算進 is_stale 的輸入"
+
+
 def test_staleness_is_measured_against_every_input() -> None:
     """**產物該不該重做，要跟它的每一個輸入比時間。**
 

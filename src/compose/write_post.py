@@ -28,6 +28,7 @@ caption 的骨架是程式組的：
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -82,8 +83,19 @@ MAX_REWRITE_ROUNDS = 2
 # 而且它只是把 angle 換句話說——angle 是「這則在講什麼」（給人看的索引），
 # hook 是「你為什麼該停下來」（給讀者看的鉤子）。兩者的讀者不同，任務不同。
 #
-# 所以現在 hook 是**獨立欄位**，而且受機器檢查：長度、不准複述 angle。
-HOOK_MAX_CHARS = 30
+# 所以現在 hook 是**獨立欄位**，而且受機器檢查。
+#
+# **但檢查的是「結構」，不是「字數」**（Human 2026-07-14：「hook 幹嘛定字數，
+# 就一句話不就得了」——他是對的）：
+#
+#   一句話  → 不換行、句末標點最多一個  ← **機器驗得出來，而且不用猜任何數字**
+#   看得完  → 不超過 IG 的折疊線 125 字  ← **Instagram 定的，不是我猜的**
+#
+# 我原本把「一句話」翻譯成「30 字」，然後那個數字開始咬人：
+# 模型寫 31–35 字，重寫三次都跨不過去，我照樣出貨——**三次 LLM 呼叫，零改善。**
+# **「一句話」是結構，「30 字」是我對結構的猜測。驗結構就好，不要猜。**
+HOOK_TARGET_CHARS = 25  # 只寫進 prompt 當建議，程式不拿它擋人
+HOOK_MAX_CHARS = IG_FOLD_CHARS  # 硬上限＝折疊線：hook 被折疊就等於沒寫
 
 # ---------------------------------------------------------------------------
 # **ask / claim 這個二分法已經拿掉了。**
@@ -157,12 +169,35 @@ def collect_images(slug: str, post_index: int) -> list[dict[str, Any]]:
         if m.group(3):
             entry["card_index"] = int(m.group(3))
         images.append(entry)
+
+    # **紅線：不省出處。**
+    # caption 不再帶出處了（Human 2026-07-14），所以整則貼文的出處**只剩結尾卡在扛**。
+    # 那張卡不見的話，這則貼文就變成沒有標註來源的轉貼——**那是版權問題，不是風格問題。**
+    if not any(i["role"] == "outro" for i in images):
+        raise PipelineError(
+            ErrorCode.MISSING_INPUT,
+            f"第 {post_index} 則沒有結尾卡（outro），出處會消失",
+            hint="出處只剩結尾卡在扛（caption 不再帶）。重跑「出圖.bat」",
+        )
     return images
 
 
 def attribution(source: dict[str, Any]) -> str:
-    """出處標註。**程式組的，模型碰不到。**（紅線 3：不省出處）"""
-    line = f"原文：{source['title']}｜{source['author']}"
+    """出處標註。留在 `post.json` 裡當紀錄，**但不再貼進 caption**。
+
+    **2026-07-14 Human：「文案當中不用放來源跟作者，圖片最後一張其實就有了。」**
+
+    他是對的：出處已經印在**結尾卡**上（`templates/card.js` 的 outro），
+    caption 再放一次是重複的。而且那個網址在 IG 上根本不能點，
+    貼在文案裡只是佔字數——142 字，吃掉正文預算的三分之一。
+
+    **紅線「不省出處」沒有鬆，是執行點搬家了**：
+    從「caption 必須帶出處」改成「**結尾卡必須存在**」（見 `collect_images()`）。
+    """
+    # **作者選填**：Google 課程、官方文件、白皮書常常沒有個人作者。
+    # 沒有就不印那一段——不要留一個孤零零的「｜」，那看起來像出錯。
+    author = source.get("author")
+    line = f"原文：{source['title']}｜{author}" if author else f"原文：{source['title']}"
     url = source.get("url")
     return f"{line}\n{url}" if url else line
 
@@ -197,15 +232,18 @@ def build_prompt(post: dict[str, Any], article: dict[str, Any]) -> str:
     template = (PROMPT_DIR / "caption.md").read_text(encoding="utf-8")
     src = article["source"]
     kind = "這支影片" if article.get("origin") == "video_transcript" else "這篇文章"
+    budget = body_budget("字" * HOOK_MAX_CHARS)  # 最壞情況（hook 寫滿）下的預算
     return (
         template.replace("{title}", src["title"])
-        .replace("{author}", src["author"])
+        .replace("{author}", src.get("author") or "（沒有標明作者）")
         .replace("{kind}", kind)
         .replace("{angle}", post["angle"])
         .replace("{hook}", post.get("hook", ""))
         .replace("{cards}", _cards_digest(post))
         .replace("{fold}", str(IG_FOLD_CHARS))
-        .replace("{hook_max}", str(HOOK_MAX_CHARS))
+        .replace("{hook_max}", str(HOOK_TARGET_CHARS))  # 給模型看「目標」，不是硬上限
+        .replace("{para_max}", str(PARA_TARGET_CHARS))
+        .replace("{body_max}", str(budget))
     )
 
 
@@ -250,16 +288,21 @@ def clean(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def assemble(
-    body: str, attrib: str, tags: list[str] | None = None, hook: str = ""
-) -> str:
-    parts = [p for p in (hook, body, attrib) if p]
+def assemble(body: str, tags: list[str] | None = None, hook: str = "") -> str:
+    """caption ＝ hook ＋ 正文 ＋（IG 才有的）hashtag。**沒有出處。**
+
+    出處在結尾卡上（見 `attribution()` 的說明）。
+    """
+    parts = [p for p in (hook, body) if p]
     if tags:
         parts.append(" ".join(tags))
     return "\n\n".join(parts)
 
 
 _PUNCT = re.compile(r"[\s，。、！？：；「」『』（）()《》…—\-,.!?:;'\"]+")
+
+# 句末標點出現在**句子中間**＝這不只一句話。（結尾的那個不算，所以先 rstrip 掉。）
+SENTENCE_SPLIT = re.compile(r"[。！？](?!$)")
 
 
 def restates_angle(hook: str, angle: str) -> bool:
@@ -270,17 +313,26 @@ def restates_angle(hook: str, angle: str) -> bool:
         angle  「這則在講什麼」——給我看的索引（也是封面標題）
         hook   「你為什麼該停下來」——給讀者看的鉤子
 
-    第一版沒分開，模型就把 angle 複述一遍當開場：
-    「用『槓鈴策略』駕馭 AI，兼顧防禦與進攻，讓 AI 成為你的思考夥伴。」
-    **那是摘要，不是 hook。** 這條機器驗得出來：字元重疊率太高就退回重寫。
+    要抓的是這種：
+        angle「用槓鈴策略駕馭 AI」→ hook「用『槓鈴策略』駕馭 AI，兼顧防禦與進攻…」
+        **那是摘要，不是 hook。**
+
+    **不能抓的是這種**（第一版誤殺了它們）：
+        angle「讓 AI 讀懂你的筆記庫」→ hook「AI 每次都要你重講一遍你是誰？」
+        它跟 angle 共用關鍵字是**必然的**——講的是同一件事。但它是痛點，不是摘要。
+
+    第一版用「字元集合重疊率 ≥ 0.7」，於是**任何講同一個主題的 hook 都被判複述**。
+    實跑時它連殺兩個好 hook，模型重寫三次都過不了關。
+    **判斷器太嚴，模型就只能亂猜——而它猜不到我心裡想的那條線。**
+
+    改成只抓「幾乎一模一樣」：angle 整句被塞進 hook，或兩者相似度 ≥ 0.75。
     """
     a, h = _PUNCT.sub("", angle), _PUNCT.sub("", hook)
     if not a or not h:
         return False
     if a in h or h in a:
         return True
-    shared = len(set(a) & set(h))
-    return shared / len(set(a)) >= 0.7  # angle 的字有七成以上出現在 hook 裡
+    return difflib.SequenceMatcher(None, a, h).ratio() >= 0.75
 
 
 SENTENCE_END = re.compile(r"(?<=[。！？])|\n+")
@@ -338,6 +390,108 @@ def wasted_opening(body: str, source: dict[str, Any]) -> str:
     return ""
 
 
+# **讀者看不到那支影片。** 他滑到的是輪播圖。
+#
+# 這幾種句子把文案變成「一個他看不到的東西的導覽」：
+#   「這支影片展示了…」「影片建議…」「就像作者所說…」「文章中提到…」
+#
+# 我會犯這個錯，是因為 prompt 從頭到尾都在叫模型「幫我整理**這支影片**」——
+# **它就真的變成影片解說員了。**
+#
+# 誠實由文末的出處標註負責（「原文：《標題》｜作者 + 連結」），
+# 不需要在每一句話裡再提醒讀者「這是別人講的」。
+NARRATION = re.compile(
+    r"這支影片|這篇文章|本影片|本文章|片中|"
+    r"影片(中|裡|提到|展示|建議|教|點出|分享|介紹|說)|"
+    r"文章(中|裡|提到|展示|建議|教|點出|分享|介紹|說)|"
+    r"作者(所?說|提到|建議|示範|強調|認為|分享|指出)|"
+    r"原文提到|(正如|就像|如同).{0,12}?所說"  # 「正如 Nick Milo 所說」——人名可能很長
+)
+
+
+def narrates_the_source(body: str) -> str:
+    """文案在幫讀者看不到的東西做導覽嗎？回傳第一句犯規的話（沒有就回空字串）。"""
+    m = NARRATION.search(body)
+    return m.group(0) if m else ""
+
+
+# 正文的形狀。**「2–3 段」是可以驗的，別只靠叮嚀。**
+#
+# 段落長度也是兩個數字：
+#   PARA_TARGET  100 字——寫進 prompt 的建議
+#   PARA_MAX     150 字——硬上限，超過就真的是一坨了
+#
+# 第一版只有「110」當硬上限，結果模型寫 111、115、118——**全部差一點點**，
+# 重寫三次都跨不過我那條隨手畫的線。
+BODY_MIN_PARAS = 2
+BODY_MAX_PARAS = 4
+PARA_TARGET_CHARS = 100
+PARA_MAX_CHARS = 150
+
+# hook 已經在鉤讀者了，正文不必再鉤一次。
+# 而且實跑時它在正文又問了一句「你是不是也覺得知識很難累積？」——**卡片沒講過這件事。**
+SECOND_HOOK = re.compile(r"你是不是也|你有沒有(發現|遇過)|你是否也|想像一下")
+
+
+def body_budget(hook: str) -> int:
+    """正文最多能寫幾個字——**由 Threads 的硬上限倒推出來。**
+
+    兩個平台共用一份文案，所以**它必須塞得進比較小的那個框**（Threads 500 字）。
+
+        500 − hook（約 30 字）− 空行 ≈ 465 字
+
+    但**這是天花板，不是目標**：正文的編輯規格是「2–3 段、每段 ≤110 字」＝ 約 330 字。
+    天花板只負責擋住「塞不進 Threads」這種硬性失敗。
+
+    （出處拿掉之前，這個預算只剩 320 字——而我同時叫模型寫「每段最多 160 字」＝ 480 字。
+    **規格從一開始就自相矛盾**，於是程式在下游把 Threads 版砍短，
+    「兩個平台共用一份」就這樣被我自己的規格拆散了。）
+    """
+    return THREADS_MAX_CHARS - len(hook) - 4
+
+
+def check_body(body: str, budget: int = 0) -> str:
+    """正文的形狀對不對？回傳哪裡不對（沒問題就回空字串）。
+
+    「這段話好不好」機器答不了。但「有沒有分段」「有沒有一坨 300 字」
+    「塞不塞得進 Threads」「是不是又在正文裡鉤一次讀者」——**這些都是機械可驗的。**
+    """
+    if budget and len(body) > budget:
+        return (
+            f"正文 {len(body)} 字，超過 {budget} 字。\n"
+            f"    （Threads 的硬上限是 500 字，扣掉出處和 hook 之後，正文只剩這麼多。"
+            f"**兩個平台共用一份文案，所以它必須塞得進比較小的那個框。**）\n"
+            f"    **砍掉一整段或一整句，不要縮寫成流水帳。**"
+        )
+
+    paras = [p.strip() for p in body.split("\n\n") if p.strip()]
+
+    if len(paras) < BODY_MIN_PARAS:
+        return (
+            f"正文只有 {len(paras)} 段，全部黏成一坨（{len(body)} 字）。"
+            f"**要 {BODY_MIN_PARAS}–3 段，段落之間空一行。**"
+        )
+    if len(paras) > BODY_MAX_PARAS:
+        return f"正文有 {len(paras)} 段，太碎了。**2–3 段就好，寫完第三段就停手。**"
+
+    for i, p in enumerate(paras, 1):
+        if len(p) > PARA_MAX_CHARS:
+            return (
+                f"第 {i} 段有 {len(p)} 字，超過硬上限 {PARA_MAX_CHARS}——**那不是段落，是一坨。**\n"
+                f"    **不要試著數字數**（你數不準）。改用結構：**那一段拆成兩段，"
+                f"或者砍掉一整句。**"
+            )
+
+    m = SECOND_HOOK.search(body)
+    if m:
+        return (
+            f"正文裡又鉤了一次讀者（「{m.group(0)}…」）。**hook 已經在做這件事了。**\n"
+            f"    正文的任務是**兌現 hook 的承諾**，不是再鉤一次——"
+            f"而且那句話的處境，卡片裡不見得有。"
+        )
+    return ""
+
+
 def check_hook(hook: str, post: dict[str, Any], source: dict[str, Any]) -> str:
     """hook 的機器檢查。回傳「哪裡不合格」（合格就回空字串）。
 
@@ -346,8 +500,22 @@ def check_hook(hook: str, post: dict[str, Any], source: dict[str, Any]) -> str:
     """
     if not hook:
         return "你沒有寫 hook"
+    # **驗結構，不驗字數。**「一句話」是機器看得出來的；「30 字」是我對它的猜測。
+    if "\n" in hook:
+        return "hook 要是一句話，不能換行"
+
+    if len(SENTENCE_SPLIT.findall(hook.rstrip("。！？"))) > 0:
+        return (
+            f"hook 有不只一句話：{hook}\n"
+            f"    **一句話，只講一個意思。** 講兩件事的那叫摘要，不叫鉤子。"
+        )
+
     if len(hook) > HOOK_MAX_CHARS:
-        return f"hook {len(hook)} 字，超過 {HOOK_MAX_CHARS} 字——**太長就不是 hook，是摘要**"
+        # 這個上限**不是我猜的**：IG 折疊線在 125 字，hook 被折疊就等於沒寫。
+        return (
+            f"hook {len(hook)} 字，超過 IG 的折疊線（{HOOK_MAX_CHARS} 字）——**讀者根本看不到它**。\n"
+            f"    砍成一句話。"
+        )
     if restates_angle(hook, post["angle"]):
         return (
             f"你的 hook 只是把 angle 換句話說：\n"
@@ -388,22 +556,38 @@ def draft(post: dict[str, Any], article: dict[str, Any], llm: LLMFn) -> tuple[st
                 bad = f"正文開頭出現了「{stolen}…」——那是出處，程式會自動接在文末"
 
         if not bad:
+            narration = narrates_the_source(hook + "\n" + body)
+            if narration:
+                bad = (
+                    f"你在幫一個讀者看不到的東西做導覽：文案裡出現「{narration}」。\n"
+                    f"    **讀者滑到的是輪播圖，不是{'影片' if '影片' in narration else '原文'}。**"
+                    f"他不會為了看懂這段文字去點開它。\n"
+                    f"    直接跟他講那個想法本身——出處由程式接在文末，誠實已經由那一行負責了。"
+                )
+
+        if not bad:
+            bad = check_body(body, budget=body_budget(hook))
+
+        if not bad:
             return hook, body, tags
 
         if attempt == MAX_REWRITE_ROUNDS:
             # 改不動就放行，但**把問題印出來**——這是編輯品質，不是平台規則，
             # 沒必要為它丟掉整篇。最後一關本來就是人。
-            print(f"    ⚠ hook 仍不合格（{bad.splitlines()[0][:44]}）→ 照樣輸出，請你自己看")
+            print(f"    ⚠ 仍不合格（{bad.splitlines()[0][:44]}）→ 照樣輸出，請你自己看")
             return hook, body, tags
 
-        print(f"    hook 不合格 → 重寫（{bad.splitlines()[0][:44]}）")
+        print(f"    文案不合格 → 重寫（{bad.splitlines()[0][:44]}）")
         prompt = (
             f"{build_prompt(post, article)}\n\n---\n\n"
-            f"# 你的開場白不合格\n\n{bad}\n\n"
-            f"**重寫 hook：{HOOK_MAX_CHARS} 字內、一句話、挑一種手法（痛點／反直覺／結果／"
-            f"共鳴提問／代價／破除誤解／門檻很低／作者原話），依據要在卡片裡找得到。**\n"
-            f"**不准替讀者斷言他的狀態**（「你的筆記從來沒有真正屬於你」＝戴帽子）。\n"
-            f"正文可以保留。再輸出一次完整的 JSON。"
+            f"# 你上一次的稿子不合格\n\n{bad}\n\n"
+            f"這是你上一次寫的：\n\n"
+            f"    hook：{hook}\n"
+            f"    正文：{body[:300]}\n\n"
+            f"**請修正上面指出的問題，重新輸出完整的 JSON。**\n"
+            f"（hook：{HOOK_MAX_CHARS} 字內、一句話、痛點／反直覺／結果／共鳴提問／代價／"
+            f"破除誤解／門檻很低／作者原話，依據要在卡片裡找得到；"
+            f"**不准替讀者斷言他的狀態**，「你的筆記從來沒有真正屬於你」＝戴帽子。）"
         )
 
     raise AssertionError("unreachable")  # pragma: no cover
@@ -417,18 +601,23 @@ def write_one(
     article: dict[str, Any],
     images: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """把同一份文案裝進某個平台的殼裡。**不再呼叫 LLM。**"""
-    attrib = attribution(article["source"])
+    """把同一份文案裝進某個平台的殼裡。**不再呼叫 LLM。**
+
+    兩個平台的差別**只剩 hashtag**（Threads 不放）。
+    正文由 `draft()` 保證塞得進 Threads，所以這裡不該再砍任何東西——
+    真的砍到了，就是上游的預算算錯了。
+    """
+    attrib = attribution(article["source"])  # 留在 post.json 當紀錄，不進 caption
     ig = platform == "instagram"
     limit = IG_MAX_CHARS if ig else THREADS_MAX_CHARS  # 平台的硬上限，不是我的偏好
     tags = tags if ig else []  # Threads 不放 hashtag
 
-    caption = assemble(body, attrib, tags, hook=hook)
+    caption = assemble(body, tags, hook=hook)
 
     if len(caption) > limit:
-        # 幾乎只會發生在 Threads（硬上限 500）。**砍正文，不砍 hook**——
-        # hook 是這則貼文唯一保證會被讀到的東西。切在句號上，絕不切在句子中間。
-        room = limit - len(attrib) - len(hook) - 6 - sum(len(t) + 1 for t in tags)
+        # **走到這裡就是 bug**：draft() 應該已經保證正文塞得進 Threads 了。
+        # 但寧可砍在句號上出貨，也不要讓整批掛掉——並且把它印出來，不要靜靜地發生。
+        room = limit - len(hook) - 4 - sum(len(t) + 1 for t in tags)
         trimmed = fit_by_sentence(body, room)
         if not trimmed:
             raise PipelineError(
@@ -436,15 +625,18 @@ def write_one(
                 f"{platform}：第一句話就超過 {room} 字，砍不動（平台上限 {limit}）",
                 hint="改 prompts/caption.md：要它寫短句，不要一句話寫成一整段",
             )
-        print(f"    {platform} 砍掉最後 {len(body) - len(trimmed)} 字（切在句號上）")
+        print(
+            f"    ⚠ {platform} 還是太長，砍掉最後 {len(body) - len(trimmed)} 字"
+            f"——**這是 bug：draft() 的預算算錯了**"
+        )
         body = trimmed
-        caption = assemble(body, attrib, tags, hook=hook)
+        caption = assemble(body, tags, hook=hook)
 
     out: dict[str, Any] = {
         "platform": platform,
         "caption": caption,
         "image_paths": [i["path"] for i in images],
-        "attribution": attrib,
+        "attribution": attrib,  # 紀錄用；出處印在結尾卡上，不在 caption 裡
     }
     if tags:
         out["hashtags"] = tags
@@ -456,8 +648,22 @@ def compose_post(slug: str, post_index: int, llm: LLMFn | None = None, force: bo
     path = post_path(slug, post_index)
 
     # **跳過的條件是「產物比所有輸入都新」，不是「檔案存在」。**
-    # prompt 也是輸入——改了 prompt 卻沒重跑，等於拿舊文案當新的用。
-    inputs = (highlights_path(slug), images_dir(slug, post_index), PROMPT_DIR)
+    #
+    # 輸入有四個，一個都不能漏：
+    #   highlights.json  內容
+    #   images/          圖卡（post.json 要列出它們）
+    #   prompts/         改了 prompt 就該重寫
+    #   **這個模組本身**  改了 hook 的檢查邏輯、砍字規則……產物一樣過期
+    #
+    # 最後一項是 Human 追問「新舊偵測是不是壞了」才補上的。
+    # **程式碼也是輸入。** 漏掉它，你會拿到一份「用舊邏輯生成、看起來很新」的東西——
+    # 而那正是最難發現的一種壞掉。
+    inputs = (
+        highlights_path(slug),
+        images_dir(slug, post_index),
+        PROMPT_DIR,
+        Path(__file__).parent,  # src/compose/
+    )
     if not force and not is_stale(path, *inputs):
         return path
 

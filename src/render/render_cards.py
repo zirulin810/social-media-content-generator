@@ -181,7 +181,7 @@ def render(slug: str, ratio: str = RATIO, force: bool = False) -> list[Path]:
 
     ctx = {
         "title": src["title"],
-        "author": src["author"],
+        "author": src.get("author", ""),  # 選填：沒有作者的素材（課程、官方文件）不印署名
         "url": src.get("url", ""),
         "handle": os.environ.get("IG_HANDLE", "@your_handle"),
         "series": "",
@@ -193,10 +193,13 @@ def render(slug: str, ratio: str = RATIO, force: bool = False) -> list[Path]:
         existing = sorted(d.glob("*.png")) if d.exists() else []
 
         # **跳過的條件不是「有圖」，是「圖比所有輸入都新」。**
-        # 輸入有兩個：`highlights.json`（內容）和 `templates/`（版型）——
-        # 改了 card.css 卻不重出圖，就是拿舊版型的圖當新的用。
+        # 輸入有三個：`highlights.json`（內容）、`templates/`（版型）、
+        # **以及這個模組本身**（拆卡邏輯、字級門檻改了，圖一樣過期）。
+        # **程式碼也是輸入**——漏掉它，你會拿到「用舊邏輯生成、看起來很新」的產物。
         oldest = min(existing, key=lambda p: p.stat().st_mtime) if existing else None
-        stale = oldest is None or is_stale(oldest, highlights_path(slug), TEMPLATE_DIR)
+        stale = oldest is None or is_stale(
+            oldest, highlights_path(slug), TEMPLATE_DIR, Path(__file__).parent
+        )
         if not stale and not force:
             out.extend(existing)
             continue

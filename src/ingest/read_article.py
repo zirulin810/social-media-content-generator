@@ -37,7 +37,9 @@ TOC_LINE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?\s+\S")
 # --- markdown 語法 ---
 IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-WIKILINK = re.compile(r"\[\[([^\]|]*)(?:\|[^\]]*)?\]\]")
+# [[目標]] 或 [[目標|顯示文字]]。**有別名就用別名**——
+# 「[[Spectrum|光譜]]」在文章裡讀起來是「光譜」，不是「Spectrum」。
+WIKILINK = re.compile(r"\[\[(?:[^\]|]*\|)?([^\]|]*)\]\]")
 HEADING_LINE = re.compile(r"^\s*#{1,6}\s+")
 EMPHASIS = re.compile(r"(\*\*|__|\*|_|`)")
 BLOCKQUOTE = re.compile(r"^>\s*")
@@ -74,9 +76,36 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
         if not m:
             continue
-        key, value = m.group(1), m.group(2).strip()
+        # **鍵一律小寫。** Web Clipper 寫 `source:`，但人自己的筆記模板寫 `Source:`。
+        # 大小寫敏感的解析，會讓「明明有來源」的筆記被判定成「沒有來源」——實際踩到過。
+        key, value = m.group(1).lower(), m.group(2).strip()
         meta[key] = value.strip('"').strip("'") if value else []
     return meta, body
+
+
+def _extract_url(raw: Any) -> str | None:
+    """從 frontmatter 的值裡挖出網址。
+
+    兩種寫法都要吃：
+
+        source: "https://example.com/x"          ← Web Clipper（裸網址）
+        Source: "[Kaggle](https://kaggle.com/x)" ← 人自己的筆記（markdown 連結）
+
+    第二種一開始接不住，於是**明明有來源的筆記被判定成「沒有來源」**。
+    """
+    if isinstance(raw, list):
+        raw = raw[0] if raw else None
+    if not raw or not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+
+    m = re.search(r"\]\((https?://[^)\s]+)\)", raw)  # [文字](網址)
+    if m:
+        return m.group(1)
+    m = re.search(r"https?://\S+", raw)  # 裸網址（前後可能有雜訊）
+    if m:
+        return m.group(0).rstrip(").,」')")
+    return None
 
 
 def _clean_author(raw: Any) -> str | None:
@@ -166,16 +195,21 @@ def normalize(md_text: str, file: Path) -> dict[str, Any]:
 
     title = (meta.get("title") or "").strip() if isinstance(meta.get("title"), str) else ""
     title = title or file.stem
-    # Web Clipper 用 `source:` 存原文連結，不是 `url:`
-    url = meta.get("source") or meta.get("url") or None
+    # Web Clipper 用 `source:` 存原文連結；人自己的筆記可能寫 `Source:` 且值是 markdown 連結。
+    # （鍵已經在 _parse_frontmatter 裡統一成小寫。）
+    url = _extract_url(meta.get("source")) or _extract_url(meta.get("url"))
     author = _clean_author(meta.get("author"))
 
-    if not author:
-        raise PipelineError(
-            ErrorCode.SOURCE_UNPARSEABLE,
-            f"frontmatter 沒有 author：{file.name}",
-            hint="補上 `author:` 再跑。出處標註寧可卡住也不能造假",
-        )
+    # **作者可以沒有，來源不行。**（Human 2026-07-14）
+    #
+    # 有些素材本來就沒有個人作者——Google 的課程、官方文件、機構出的白皮書。
+    # 硬要一個作者名，只會逼人瞎填。
+    #
+    # 但**出處紅線沒有鬆**：`url` 仍然必填。
+    # 「這是誰講的」可以不知道，「這是從哪來的」不能不知道——
+    # 少了前者只是資訊不全，少了後者就是**沒標來源的轉貼**。
+    #
+    # 而且**一樣不准編**：沒有作者就是沒有，不會拿標題或網域去湊一個出來。
     if not url:
         raise PipelineError(
             ErrorCode.SOURCE_UNPARSEABLE,
@@ -198,10 +232,11 @@ def normalize(md_text: str, file: Path) -> dict[str, Any]:
     source: dict[str, Any] = {
         "slug": slugify(file.stem),
         "title": title,
-        "author": author,
         "url": url,
         "file": str(file),
     }
+    if author:  # 沒有作者就**不寫這個欄位**，不要塞空字串——那會讓下游分不出「沒有」和「空的」
+        source["author"] = author
     published = meta.get("published")
     if isinstance(published, str) and published:
         source["published_at"] = published
@@ -220,7 +255,7 @@ def normalize(md_text: str, file: Path) -> dict[str, Any]:
 
 def read(md_path: Path, force: bool = False) -> Path:
     """讀取 markdown、正規化、寫出 article.json，回傳檔案路徑。"""
-    from ..paths import article_path
+    from ..paths import article_path, is_stale
     from ..schema import write_json
 
     md_path = Path(md_path)
@@ -241,7 +276,10 @@ def read(md_path: Path, force: bool = False) -> Path:
 
     data = normalize(md_text, md_path)
     out = article_path(data["source"]["slug"])
-    if out.exists() and not force:
+
+    # **跳過的條件是「產物比輸入新」，不是「檔案存在」。**
+    # 輸入 = 原始 md 檔 + 這個模組本身（正規化規則改了，article.json 就過期了）。
+    if not force and not is_stale(out, md_path, Path(__file__).parent):
         return out
     return write_json("article", out, data)
 

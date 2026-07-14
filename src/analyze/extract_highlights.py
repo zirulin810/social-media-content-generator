@@ -23,7 +23,7 @@ from typing import Any
 
 from ..errors import ErrorCode, PipelineError
 from ..llm import LLMFn, current_model, get_llm
-from ..paths import PROMPT_DIR, article_path, highlights_path
+from ..paths import PROMPT_DIR, article_path, highlights_path, is_stale
 from ..schema import read_json, validate, write_json
 from . import locale
 from .grounding import Finding, check, iter_claims, review
@@ -48,7 +48,7 @@ def build_prompt(article: dict[str, Any]) -> str:
     body = "\n\n".join(f"[{p['index']}] {p['text']}" for p in article["paragraphs"])
     return (
         template.replace("{title}", article["source"]["title"])
-        .replace("{author}", article["source"]["author"])
+        .replace("{author}", article["source"].get("author") or "（沒有標明作者）")
         .replace("{language}", article["language"])
         .replace("{paragraphs}", body)
     )
@@ -186,8 +186,13 @@ def analyze(article: dict[str, Any], llm: LLMFn | None = None) -> dict[str, Any]
 
 def extract(slug: str, force: bool = False, llm: LLMFn | None = None) -> Path:
     path = highlights_path(slug)
-    if path.exists() and not force:
+
+    # **跳過的條件是「產物比所有輸入都新」，不是「檔案存在」。**
+    # 輸入 = article.json + prompts/ + 這個模組本身（prompt 改了、抽取邏輯改了，知識卡就過期了）。
+    inputs = (article_path(slug), PROMPT_DIR, Path(__file__).parent)
+    if not force and not is_stale(path, *inputs):
         return path
+
     article = read_json("article", article_path(slug))
     return write_json("highlights", path, analyze(article, llm))
 

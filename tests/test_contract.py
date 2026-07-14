@@ -54,10 +54,25 @@ def test_post_images_match_naming_rule() -> None:
 
 
 def test_every_post_carries_attribution() -> None:
+    """**紅線：不省出處。但執行點搬家了。**
+
+    2026-07-14 Human：「文案當中不用放來源跟作者，圖片最後一張其實就有了。」
+
+    他是對的——出處印在**結尾卡**上（`templates/card.js` 的 outro），
+    caption 再放一次是重複的；而且那個網址在 IG 上根本不能點，
+    貼在文案裡只是佔掉 142 字（正文預算的三分之一）。
+
+    所以紅線沒鬆，是**從「caption 必須帶出處」改成「結尾卡必須存在」**：
+    - `post.json` 仍保留 `attribution` 欄位（紀錄用）
+    - `collect_images()` 檢查每則貼文都有 outro 卡——沒有就報錯
+
+    **少了那張卡，這則貼文就變成沒有標註來源的轉貼。那是版權問題，不是風格問題。**
+    """
     post = _example("post")
     for p in post["posts"]:
-        assert p["attribution"].strip()
-        assert post["source"]["url"] in p["caption"], "貼文必須帶原文連結"
+        assert p["attribution"].strip(), "post.json 仍要留著出處（紀錄用）"
+        roles = {img["role"] for img in post["images"]}
+        assert "outro" in roles, "出處只剩結尾卡在扛——那張卡不能不見"
 
 
 def test_threads_caption_within_limit() -> None:

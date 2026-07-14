@@ -16,9 +16,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.compose.write_post import IG_FOLD_CHARS, compose_post  # noqa: E402
+import src.compose.write_post as src_compose  # noqa: E402
+from src.compose.write_post import compose_post  # noqa: E402
 from src.errors import PipelineError  # noqa: E402
-from src.paths import highlights_path, images_dir, out_root  # noqa: E402
+from src.paths import (  # noqa: E402
+    PROMPT_DIR,
+    highlights_path,
+    images_dir,
+    is_stale,
+    out_root,
+    post_path,
+)
 from src.schema import read_json  # noqa: E402
 
 
@@ -39,6 +47,7 @@ def ready() -> list[tuple[str, int]]:
 
 
 def show(path: Path) -> None:
+    """**一份文案，兩個平台。** 不要再假裝它們是兩篇東西——差別只有 hashtag。"""
     import json
     import re
 
@@ -47,25 +56,37 @@ def show(path: Path) -> None:
     term_re = re.compile("|".join(sorted(TERMS, key=len, reverse=True)))
 
     data = json.loads(path.read_text(encoding="utf-8"))
-    for p in data["posts"]:
-        name = "Instagram" if p["platform"] == "instagram" else "Threads"
-        cap = p["caption"]
-        print(f"\n  ── {name}（{len(cap)} 字，{len(p['image_paths'])} 張圖）" + "─" * 30)
-        for line in cap.splitlines():
-            print(f"  │ {line}")
-        if p["platform"] == "instagram":
-            hook = cap.splitlines()[0]
-            print(f"  └ hook（{len(hook)} 字）：「{hook}」  ← 值得為它停下手指嗎？")
-        else:
-            print("  └")
+    by = {p["platform"]: p for p in data["posts"]}
+    ig, th = by["instagram"], by["threads"]
 
-        # 用語只標記、不改。**同一個詞，語意不同就是兩件事**——機器判不準，你自己看。
-        # （出處那幾行是原文標題，不算。）
-        body = cap.split("\n\n原文：")[0]
-        hits = dict.fromkeys(term_re.findall(body))
-        if hits:
-            pairs = "、".join(f"「{h}」→「{TERMS[h]}」" for h in hits)
-            print(f"     ⚑ 用語提醒：{pairs}  （是台灣的正常用法就不用理它）")
+    ig_body = ig["caption"].split("\n\n#")[0]
+    same = ig_body.strip() == th["caption"].strip()
+
+    print(f"\n  出處：{data['source'].get('url', '（無）')}  ← 印在最後一張圖卡上，不放進文案")
+
+    n_img = len(ig["image_paths"])
+    print(f"\n  ── 文案（IG 與 Threads 共用，{n_img} 張圖）" + "─" * 34)
+    for line in th["caption"].splitlines():
+        print(f"  │ {line}")
+
+    tags = ig.get("hashtags") or []
+    if tags:
+        print("  │")
+        print(f"  │ {' '.join(tags)}   ← 只有 IG 加這行")
+
+    hook = th["caption"].splitlines()[0]
+    print(f"  └ hook（{len(hook)} 字）：「{hook}」  ← 值得為它停下手指嗎？")
+
+    if not same:
+        # Threads 硬上限 500，太長時程式會砍尾巴——**砍了就要說**
+        print(f"     ✂ Threads 版被砍短了（{len(th['caption'])} 字），IG 版是完整的")
+
+    # 用語只標記、不改。**同一個詞，語意不同就是兩件事**——機器判不準，你自己看。
+    body = th["caption"].split("\n\n原文：")[0]
+    hits = dict.fromkeys(term_re.findall(body))
+    if hits:
+        pairs = "、".join(f"「{h}」→「{TERMS[h]}」" for h in hits)
+        print(f"     ⚑ 用語提醒：{pairs}  （是台灣的正常用法就不用理它）")
 
 
 def main() -> int:
@@ -80,6 +101,7 @@ def main() -> int:
         return 1
 
     failed = []
+    reused = 0
     for slug, i in todo:
         h = read_json("highlights", highlights_path(slug))
         post = h["posts"][i - 1]
@@ -87,6 +109,16 @@ def main() -> int:
         print(f"  {h['source']['title'][:52]}")
         print(f"  第 {i} 則：{post['angle']}")
         print("=" * 74)
+
+        # **產物沒重跑就要講出來。** 原本這裡只印「(0.0s)」——看起來像跑完了，
+        # 其實是直接讀舊檔。**靜靜地拿舊產物充數，比報錯還危險。**
+        fresh = not args.force and not is_stale(
+            post_path(slug, i),
+            highlights_path(slug),
+            images_dir(slug, i),
+            PROMPT_DIR,
+            Path(src_compose.__file__).parent,  # 程式碼也是輸入
+        )
         t0 = time.perf_counter()
         try:
             path = compose_post(slug, i, force=args.force)
@@ -94,14 +126,21 @@ def main() -> int:
             print(f"✗ {e.render()}")
             failed.append(f"{slug} p{i}")
             continue
-        print(f"({time.perf_counter() - t0:.1f}s)")
+
+        if fresh:
+            reused += 1
+            print("  ↩ 沿用既有文案（輸入沒變）。要重寫：「產生文案.bat」拖進來加 --force")
+        else:
+            print(f"  ✎ 重新寫過（{time.perf_counter() - t0:.1f}s）")
         show(path)
 
     print("\n" + "=" * 74)
     if failed:
         print(f"  {len(todo) - len(failed)}/{len(todo)} 則完成；失敗：{', '.join(failed)}")
     else:
-        print(f"  {len(todo)} 則文案完成。上面就是可以直接複製貼上的成品。")
+        wrote = len(todo) - reused
+        detail = f"（{wrote} 則重寫、{reused} 則沿用舊檔）" if reused else ""
+        print(f"  {len(todo)} 則文案完成{detail}。上面就是可以直接複製貼上的成品。")
     print("  最後一關是你：**這些話，你敢不敢用自己的名字發出去？**")
     print("=" * 74)
     return 1 if failed else 0
