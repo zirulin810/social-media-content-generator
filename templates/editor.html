@@ -63,14 +63,18 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 #themeSel { font:inherit; font-size:13px; padding:6px 9px; border:1px solid var(--line);
             border-radius:7px; background:#fff; }
 #viewBtns { display:inline-flex; gap:6px; }
-#saveState { margin-left:auto; font-size:12px; color:var(--mute); }
-#settingsBtn { margin-left:10px; }
+#saveState { position:fixed; right:16px; bottom:12px; z-index:40; font-size:11.5px;
+             color:var(--soft); background:var(--panel); border:1px solid var(--line);
+             border-radius:999px; padding:4px 12px; }
+#saveState:empty { display:none; }
 #saveState.err { color:var(--bad); font-weight:700; }
+#viewBtns { margin-left:auto; }
+#settingsBtn { margin-left:8px; }
 #tabs { display:flex; gap:6px; align-items:center; padding:12px 18px 0; }
 .tab { padding:6px 14px; border-radius:8px 8px 0 0; border:1px solid var(--line);
        border-bottom:none; background:#EAE7E0; font-size:13px; cursor:pointer; }
 .tab.on { background:var(--panel); font-weight:700; }
-#stage { flex:1; overflow:auto; padding:16px 18px 60px; }
+#stage { flex:1; overflow:auto; padding:14px 18px 16px; }
 
 /* ---------- 卡片編輯 ---------- */
 #deck { display:grid; grid-template-columns:repeat(auto-fill,minmax(295px,1fr)); gap:16px; }
@@ -90,7 +94,7 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
            display:flex; flex-direction:column; align-items:center; justify-content:center;
            gap:8px; color:var(--mute); background:transparent; }
 .addcell .row { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
-#deckNote { margin:14px 2px 8px; font-size:12px; color:var(--mute); line-height:1.7; }
+#deckNote { margin:10px 2px 0; font-size:11px; color:var(--mute); line-height:1.6; }
 
 /* 出處開關（結尾卡那格） */
 .attr { padding:9px 11px; border-top:1px solid var(--line); font-size:12px; line-height:1.6; }
@@ -103,8 +107,8 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 /* ---------- 文案 ---------- */
 #capWrap { margin-top:26px; background:var(--panel); border:1px solid var(--line);
            border-radius:var(--r); padding:16px 18px; max-width:960px; }
-/* 文案分頁：正文編輯區直接吃到頁面最下方（Human 2026-07-15） */
-#capWrap textarea#capBody { min-height:calc(100vh - 400px); }
+/* 文案分頁：正文吃滿剩餘高度，但整體收在一屏內——能不捲就不捲（Human 2026-07-15） */
+#capWrap textarea#capBody { min-height:calc(100vh - 480px); }
 #capWrap h3 { font-size:14px; margin-bottom:4px; }
 #capWrap .row { margin-top:12px; }
 #capWrap .lab { display:flex; align-items:baseline; gap:8px; margin-bottom:5px; }
@@ -184,7 +188,7 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
            align-items:center; justify-content:center; color:#fff; font-size:20px; font-weight:800;
            letter-spacing:.1em; }
 #dropOvl.show { display:flex; }
-#busy { position:fixed; right:20px; bottom:20px; background:#1C1B18; color:#fff;
+#busy { position:fixed; right:20px; bottom:52px; background:#1C1B18; color:#fff;
         border-radius:11px; padding:12px 16px; font-size:12.5px; display:none; z-index:70;
         min-width:220px; line-height:1.7; }
 .spin { display:inline-block; width:11px; height:11px; border:2px solid #666; border-top-color:#fff;
@@ -290,15 +294,14 @@ details.ptab summary { cursor:pointer; font-weight:700; font-size:13px; }
     <span class="sep"></span>
     <label>帳號</label>
     <input type="text" id="handle" placeholder="@your_handle">
-    <span class="sep"></span>
     <span id="viewBtns"></span>
-    <span id="saveState"></span>
     <button id="settingsBtn">⚙ 設定</button>
   </div>
   <div id="tabs"></div>
   <div id="stage"><div id="empty">← 左邊挑一篇素材，或把 .md 拖進來</div></div>
 </div>
 
+<span id="saveState"></span>
 <div id="ovl"></div>
 <div id="toast"></div>
 <div id="dropOvl">放開，開始處理素材</div>
@@ -403,6 +406,7 @@ function cardFrame(card, opts) {
   };
 
   const draw = c => {                          // 初繪與重繪共用：同一個 iframe 原地重畫
+    shot.dataset.ratio = S.cfg.ratio;          // 外框比例跟著設定（就地換比例時要同步）
     const d = f.contentDocument, w = f.contentWindow;
     d.body.dataset.theme = S.cfg.theme;
     d.body.dataset.ratio = S.cfg.ratio;
@@ -557,12 +561,12 @@ function renderEdit() {
   const deck = document.createElement("div"); deck.id = "deck";
 
   // -- 封面（angle / hook 都直接改；改標題＝自訂標題）
-  deck.appendChild(cellFor({ type:"cover", angle:p.angle, hook:p.hook, stat:p.stat }, -1));
+  deck.appendChild(cellFor({ type:"cover", angle:p.angle, hook:p.hook, stat:p.stat }, true));
 
   // -- 內容卡
-  p.cards.forEach((c, i) => deck.appendChild(cellFor(c, i)));
+  p.cards.forEach(c => deck.appendChild(cellFor(c, false)));
 
-  // -- 新增卡片
+  // -- 新增卡片（**原地插入**，不重建整個牌組——重建＝所有 iframe 重載＝閃）
   const add = document.createElement("div"); add.className = "addcell";
   add.innerHTML = `<div>＋ 新增卡片</div><div class="row">` +
     Object.keys(NEW_CARD).map(t => `<button data-t="${t}">${TYPE_NAME[t]}</button>`).join("") + `</div>`;
@@ -571,8 +575,10 @@ function renderEdit() {
     if (!t) return;
     const max = (S.cfg.gen && S.cfg.gen.cards_max) || 18;
     if (p.cards.length >= max) return toast(`一則最多 ${max} 張卡（輪播上限 20 − 封面 − 出處卡）`);
-    p.cards.push(NEW_CARD[t]());
-    markDirty(); renderEdit();
+    const c = NEW_CARD[t]();
+    p.cards.push(c);
+    deck.insertBefore(cellFor(c, false), add);   // 只長出新的那格
+    markDirty();
   });
   deck.appendChild(add);
 
@@ -586,58 +592,115 @@ function renderEdit() {
   stage.appendChild(note);
 }
 
-function cellFor(card, idx) {
-  const p = post();
+/* 卡片格。**所有操作都原地做**（重繪內容，不動 iframe 節點）——
+   iframe 只要被重建或在 DOM 裡搬家就會重新載入＝畫面閃一下（Human 2026-07-15 兩度回報）。
+   所以：卡片物件掛在 cell._card 上、索引點擊當下才算（indexOf）、
+   換順序＝兩格互換內容而不是搬節點、工具列跟著卡型重建。 */
+function cellFor(card, isCover) {
   const cell = document.createElement("div"); cell.className = "cell";
+  cell._card = card;
   const fit = document.createElement("span");
-  const freshCard = () => idx >= 0 ? p.cards[idx]
-    // 封面的字存在 post 上（angle/hook）——重繪要拿最新的值，不能拿舊的建構物件
-    : { type:"cover", angle:p.angle, hook:p.hook, stat:p.stat };
-  cell.appendChild(cardFrame(card, {
+  const curIdx = () => post().cards.indexOf(cell._card);
+  const coverCard = () => {
+    const p = post();
+    return { type:"cover", angle:p.angle, hook:p.hook, stat:p.stat };
+  };
+  const shot = cardFrame(card, {
     editable: true, fitEl: fit,
     onEdit: () => {
-      if (idx >= 0) markEdited(p.cards[idx]);
+      if (!isCover && cell._card.type !== "outro") markEdited(cell._card);
       markDirty();
-      refreshCell(cell, freshCard(), idx);
+      if (isCover) cell._card = coverCard();     // 封面的字存在 post 上，重繪要拿最新值
+      shot.redrawCard(cell._card);
     },
-    onRestore: () => refreshCell(cell, freshCard(), idx),
-  }));
-  const bar = document.createElement("div"); bar.className = "cellbar";
-  const k = document.createElement("span"); k.className = "k"; k.textContent = TYPE_NAME[card.type] || card.type;
-  bar.appendChild(k); bar.appendChild(fit);
-  const sp = document.createElement("span"); sp.className = "sp"; bar.appendChild(sp);
+    onRestore: () => shot.redrawCard(isCover ? (cell._card = coverCard()) : cell._card),
+  });
+  cell.appendChild(shot);
 
-  if (idx >= 0) {
-    if (card.type === "steps") {
-      btn(bar, "＋步驟", () => {
-        if (card.steps.length >= 6) return toast("最多 6 步（版面契約）");
-        card.steps.push({ text:"新的一步" }); markEdited(card); markDirty(); renderEdit();
-      });
-      btn(bar, "−步驟", () => {
-        if (card.steps.length <= 2) return toast("至少 2 步");
-        card.steps.pop(); markEdited(card); markDirty(); renderEdit();
-      });
-    }
-    btn(bar, "🤖", () => openSuggest("card", idx));
-    btn(bar, "◀", () => { if (idx > 0) { swap(p.cards, idx, idx - 1); markDirty(); renderEdit(); } });
-    btn(bar, "▶", () => { if (idx < p.cards.length - 1) { swap(p.cards, idx, idx + 1); markDirty(); renderEdit(); } });
-    btn(bar, "🗑", () => {
-      if (p.cards.length <= 2) return toast("至少要 2 張卡（版面契約）");
-      if (!confirm("刪掉這張卡？")) return;
-      p.cards.splice(idx, 1); markDirty(); renderEdit();
-    });
-  } else if (card.type === "cover") {
-    btn(bar, "🤖", () => openSuggest("cover"));
-  }
+  const bar = document.createElement("div"); bar.className = "cellbar";
   cell.appendChild(bar);
+
+  // 內容換了（換順序、接受建議）就呼叫這個：換內容＋重建工具列，iframe 原地不動
+  cell.assign = c => {
+    cell._card = c;
+    buildBar();
+    shot.redrawCard(c);
+  };
+
+  function buildBar() {
+    const p = post();
+    bar.innerHTML = "";
+    const c = cell._card;
+    const k = document.createElement("span"); k.className = "k";
+    k.textContent = TYPE_NAME[c.type] || c.type;
+    bar.appendChild(k); bar.appendChild(fit);
+    const sp = document.createElement("span"); sp.className = "sp"; bar.appendChild(sp);
+
+    if (!isCover) {
+      if (c.type === "steps") {
+        btn(bar, "＋步驟", () => {
+          const cc = cell._card;
+          if (cc.steps.length >= 6) return toast("最多 6 步（版面契約）");
+          cc.steps.push({ text:"新的一步" }); markEdited(cc); markDirty(); shot.redrawCard(cc);
+        });
+        btn(bar, "−步驟", () => {
+          const cc = cell._card;
+          if (cc.steps.length <= 2) return toast("至少 2 步");
+          cc.steps.pop(); markEdited(cc); markDirty(); shot.redrawCard(cc);
+        });
+      }
+      btn(bar, "🤖", () => openSuggest("card", curIdx()));
+      btn(bar, "◀", () => shiftCell(cell, -1));
+      btn(bar, "▶", () => shiftCell(cell, +1));
+      btn(bar, "🗑", () => {
+        const p2 = post();
+        if (p2.cards.length <= 2) return toast("至少要 2 張卡（版面契約）");
+        if (!confirm("刪掉這張卡？")) return;
+        p2.cards.splice(curIdx(), 1);
+        cell.remove();                            // 只拆掉自己這格
+        markDirty();
+      });
+    } else {
+      btn(bar, "🤖", () => openSuggest("cover"));
+    }
+  }
+  buildBar();
   return cell;
 }
 function btn(bar, label, fn) { const b = document.createElement("button"); b.className = "ghost"; b.textContent = label; b.onclick = fn; bar.appendChild(b); }
 function swap(a, i, j) { [a[i], a[j]] = [a[j], a[i]]; }
-function refreshCell(cell, card, idx) {
-  const shot = cell.querySelector(".shot");
-  if (shot && shot.redrawCard) { shot.redrawCard(card); return; }   // 原地重畫，不閃
-  cell.replaceWith(cellFor(card, idx));                              // 保險絲：沒有就整格重建
+
+/* 換順序＝資料交換＋兩格互換「內容」。不搬 DOM 節點——iframe 搬家會重載（閃）。 */
+function shiftCell(cell, dir) {
+  const p = post();
+  const i = p.cards.indexOf(cell._card);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= p.cards.length) return;
+  swap(p.cards, i, j);
+  const other = dir < 0 ? cell.previousElementSibling : cell.nextElementSibling;
+  if (other && other.assign) {
+    const mine = cell._card;
+    cell.assign(other._card);
+    other.assign(mine);
+  }
+  markDirty();
+}
+
+/* 整副牌就地刷新（張數沒變時用；接受建議、換主題比例都走這裡） */
+function refreshDeck() {
+  const deck = $("#deck");
+  if (!deck) return false;
+  const cells = Array.from(deck.children).filter(el => el.assign || el._card);
+  const contentCells = cells.filter(el => el._card && el._card.type !== "cover" && el._card.type !== "outro");
+  const p = post();
+  if (contentCells.length !== p.cards.length) return false;   // 張數變了，交給 renderEdit
+  cells.forEach(el => {
+    if (!el._card) return;
+    if (el._card.type === "cover") el.assign ? el.assign({ type:"cover", angle:p.angle, hook:p.hook, stat:p.stat }) : null;
+    else if (el._card.type === "outro") { const sh = el.querySelector(".shot"); sh && sh.redrawCard && sh.redrawCard(el._card); }
+  });
+  contentCells.forEach((el, i) => el.assign(p.cards[i]));
+  return true;
 }
 
 /* 結尾卡那格：出處開關住在這裡。
@@ -646,6 +709,7 @@ function outroCell(p) {
   const cell = document.createElement("div"); cell.className = "cell";
   if (!p.original) {
     const card = { type:"outro" };
+    cell._card = card;
     let shotRef;
     shotRef = cardFrame(card, {
       editable: true,
@@ -945,7 +1009,10 @@ function buildDiffs(scope, cardIdx, oldC, sug, out) {
   else {
     const done = document.createElement("div"); done.className = "btns";
     done.innerHTML = `<button class="pri">完成，回到編輯</button>`;
-    done.querySelector("button").onclick = () => { closeModal(); renderEdit(); };
+    done.querySelector("button").onclick = () => {
+      closeModal();
+      if (S.view !== "edit" || S.sub !== "cards" || !refreshDeck()) renderAll();
+    };
     out.appendChild(done);
   }
 }
@@ -1576,7 +1643,8 @@ function syncTop() {
 async function setCfg(patch) {
   Object.assign(S.cfg, patch);
   syncTop();
-  if (S.hl) renderAll();     // 出圖是純函式：換主題／比例只是重畫，不可能弄丟東西
+  // 出圖是純函式：換主題／比例只是重畫。編輯視圖能就地重畫就不重建（重建＝閃）
+  if (S.hl && !(S.view === "edit" && S.sub === "cards" && refreshDeck())) renderAll();
   try { await api("/api/config", S.cfg); } catch (e) { /* 設定存不進去不擋人 */ }
 }
 $("#r1").onclick = () => setCfg({ ratio: "1x1" });
