@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .. import settings
 from ..analyze import locale
 from ..errors import ErrorCode, PipelineError
 from ..llm import LLMFn, current_model, get_llm
@@ -66,11 +67,19 @@ THREADS_MAX_CHARS = 500  # Threads 的真實上限
 
 IG_FOLD_CHARS = 125  # IG 超過這個長度就折疊成「…更多」——前 125 字要能自己站著
 
-IG_HASHTAG_MAX = 10
+IG_HASHTAG_MAX = 10  # 出廠預設；實際值走設定（generation.hashtags_max）
+
+
+def _hashtags_max() -> int:
+    return int(settings.gen("hashtags_max"))
 
 # hook 不合格時請它重寫幾次。改不動就放行並印警告——
 # **那是編輯品質，不是平台規則**，沒必要為它丟掉整篇。最後一關本來就是人。
-MAX_REWRITE_ROUNDS = 2
+MAX_REWRITE_ROUNDS = 2  # 出廠預設；實際值走設定（caption.rewrite_rounds）
+
+
+def _rewrite_rounds() -> int:
+    return int(settings.cap("rewrite_rounds"))
 
 # ---------------------------------------------------------------------------
 # hook = 貼文的第一句。**它的唯一任務是讓人停止滑動。**
@@ -94,7 +103,12 @@ MAX_REWRITE_ROUNDS = 2
 # 我原本把「一句話」翻譯成「30 字」，然後那個數字開始咬人：
 # 模型寫 31–35 字，重寫三次都跨不過去，我照樣出貨——**三次 LLM 呼叫，零改善。**
 # **「一句話」是結構，「30 字」是我對結構的猜測。驗結構就好，不要猜。**
-HOOK_TARGET_CHARS = 25  # 只寫進 prompt 當建議，程式不拿它擋人
+HOOK_TARGET_CHARS = 25  # 出廠預設；實際值由後台設定管（見 _hook_target()），程式不拿它擋人
+
+
+def _hook_target() -> int:
+    """hook 的目標字數——人的偏好，住在後台設定（[[編輯台後台設定]]）。"""
+    return int(settings.gen("hook_target"))
 HOOK_MAX_CHARS = IG_FOLD_CHARS  # 硬上限＝折疊線：hook 被折疊就等於沒寫
 
 # ---------------------------------------------------------------------------
@@ -137,10 +151,13 @@ def _png_ratio(path: Path) -> str:
     return "1:1" if w == h else "4:5"
 
 
-def collect_images(slug: str, post_index: int) -> list[dict[str, Any]]:
+def collect_images(slug: str, post_index: int, original: bool = False) -> list[dict[str, Any]]:
     """掃 `p<N>/images/`，把檔名解析成 post.json 的 images 清單。
 
     **檔名就是契約**（`paths.image_name()` 定的）。這裡不重新發明命名規則，只是讀它。
+
+    `original=True`＝人已在編輯台明確宣告「這則是我的原創」（highlights 的 `post.original`，
+    v3.4）——只有這種貼文允許沒有結尾卡。預設一律要求出處。
     """
     d = images_dir(slug, post_index)
     files = sorted(d.glob("*.png")) if d.exists() else []
@@ -173,7 +190,8 @@ def collect_images(slug: str, post_index: int) -> list[dict[str, Any]]:
     # **紅線：不省出處。**
     # caption 不再帶出處了（Human 2026-07-14），所以整則貼文的出處**只剩結尾卡在扛**。
     # 那張卡不見的話，這則貼文就變成沒有標註來源的轉貼——**那是版權問題，不是風格問題。**
-    if not any(i["role"] == "outro" for i in images):
+    # 唯一的例外：人已明確宣告原創（original）——原創沒有「別人的出處」可標。
+    if not original and not any(i["role"] == "outro" for i in images):
         raise PipelineError(
             ErrorCode.MISSING_INPUT,
             f"第 {post_index} 則沒有結尾卡（outro），出處會消失",
@@ -202,20 +220,30 @@ def attribution(source: dict[str, Any]) -> str:
     return f"{line}\n{url}" if url else line
 
 
+# 卡片文字裡的 `**重點**` 是**版型的語言**（card.js 渲染成螢光筆），不是文案的。
+# 餵給文案模型前要剝掉——不剝的話模型會有樣學樣，把星號原封寫進 caption，
+# 而 IG／Threads 不渲染 markdown，讀者看到的就是兩顆星號。
+_MARK = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _plain(s: str) -> str:
+    return _MARK.sub(r"\1", s)
+
+
 def _cards_digest(post: dict[str, Any]) -> str:
     """把知識卡攤平成純文字餵給模型。**文案不得超出卡片講過的東西。**"""
     out = []
     for c in post["cards"]:
         t = c["type"]
         if t == "point":
-            out.append(f"- [重點] {c['title']}：{c['body']}")
+            out.append(f"- [重點] {_plain(c['title'])}：{_plain(c['body'])}")
         elif t == "steps":
-            steps = "；".join(f"{i}. {s['text']}" for i, s in enumerate(c["steps"], 1))
-            out.append(f"- [步驟] {c['title']}：{steps}")
+            steps = "；".join(f"{i}. {_plain(s['text'])}" for i, s in enumerate(c["steps"], 1))
+            out.append(f"- [步驟] {_plain(c['title'])}：{steps}")
         elif t == "contrast":
-            out.append(f"- [對照] {c['title']}：✗ {c['wrong']['text']} ／ ✓ {c['right']['text']}")
+            out.append(f"- [對照] {_plain(c['title'])}：✗ {_plain(c['wrong']['text'])} ／ ✓ {_plain(c['right']['text'])}")
         elif t == "quote":
-            out.append(f"- [金句] {c['text']}")
+            out.append(f"- [金句] {_plain(c['text'])}")
     return "\n".join(out)
 
 
@@ -241,8 +269,8 @@ def build_prompt(post: dict[str, Any], article: dict[str, Any]) -> str:
         .replace("{hook}", post.get("hook", ""))
         .replace("{cards}", _cards_digest(post))
         .replace("{fold}", str(IG_FOLD_CHARS))
-        .replace("{hook_max}", str(HOOK_TARGET_CHARS))  # 給模型看「目標」，不是硬上限
-        .replace("{para_max}", str(PARA_TARGET_CHARS))
+        .replace("{hook_max}", str(_hook_target()))  # 給模型看「目標」，不是硬上限
+        .replace("{para_max}", str(_para_target()))
         .replace("{body_max}", str(budget))
     )
 
@@ -280,9 +308,16 @@ def _parse(text: str) -> dict[str, Any]:
         ) from e
 
 
-def clean(text: str) -> str:
-    """剝表情符號、轉台灣正體、收乾空白。**全是機械的事。**"""
+def clean(text: str, keep_marks: bool = False) -> str:
+    """剝表情符號、剝 `**` 標記、轉台灣正體、收乾空白。**全是機械的事。**
+
+    `**` 是圖卡版型的螢光筆語法（card.js 渲染成 `<mark>`）——它只屬於圖卡：
+    - caption 是純文字，IG／Threads 不渲染 markdown，星號留著就會被讀者看到 → 預設剝掉
+    - **圖卡文字的建議**（編輯台）裡它是合法的重點標記 → `keep_marks=True` 保留
+    """
     text = EMOJI.sub("", text)
+    if not keep_marks:
+        text = _MARK.sub(r"\1", text)
     text = locale.to_taiwan(text)
     text = re.sub(r"[ \t]+\n", "\n", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -423,10 +458,26 @@ def narrates_the_source(body: str) -> str:
 #
 # 第一版只有「110」當硬上限，結果模型寫 111、115、118——**全部差一點點**，
 # 重寫三次都跨不過我那條隨手畫的線。
-BODY_MIN_PARAS = 2
+BODY_MIN_PARAS = 2      # 以下四個都是出廠預設；實際值走設定的 caption 區
 BODY_MAX_PARAS = 4
 PARA_TARGET_CHARS = 100
 PARA_MAX_CHARS = 150
+
+
+def _paras_min() -> int:
+    return int(settings.cap("body_paras_min"))
+
+
+def _paras_max() -> int:
+    return int(settings.cap("body_paras_max"))
+
+
+def _para_target() -> int:
+    return int(settings.cap("para_target"))
+
+
+def _para_max() -> int:
+    return int(settings.cap("para_max"))
 
 # hook 已經在鉤讀者了，正文不必再鉤一次。
 # 而且實跑時它在正文又問了一句「你是不是也覺得知識很難累積？」——**卡片沒講過這件事。**
@@ -466,18 +517,18 @@ def check_body(body: str, budget: int = 0) -> str:
 
     paras = [p.strip() for p in body.split("\n\n") if p.strip()]
 
-    if len(paras) < BODY_MIN_PARAS:
+    if len(paras) < _paras_min():
         return (
             f"正文只有 {len(paras)} 段，全部黏成一坨（{len(body)} 字）。"
-            f"**要 {BODY_MIN_PARAS}–3 段，段落之間空一行。**"
+            f"**要 {_paras_min()}–{_paras_max() - 1} 段，段落之間空一行。**"
         )
-    if len(paras) > BODY_MAX_PARAS:
-        return f"正文有 {len(paras)} 段，太碎了。**2–3 段就好，寫完第三段就停手。**"
+    if len(paras) > _paras_max():
+        return f"正文有 {len(paras)} 段，太碎了。**{_paras_min()}–{_paras_max() - 1} 段就好。**"
 
     for i, p in enumerate(paras, 1):
-        if len(p) > PARA_MAX_CHARS:
+        if len(p) > _para_max():
             return (
-                f"第 {i} 段有 {len(p)} 字，超過硬上限 {PARA_MAX_CHARS}——**那不是段落，是一坨。**\n"
+                f"第 {i} 段有 {len(p)} 字，超過硬上限 {_para_max()}——**那不是段落，是一坨。**\n"
                 f"    **不要試著數字數**（你數不準）。改用結構：**那一段拆成兩段，"
                 f"或者砍掉一整句。**"
             )
@@ -534,7 +585,8 @@ def draft(post: dict[str, Any], article: dict[str, Any], llm: LLMFn) -> tuple[st
     source = article["source"]
     prompt = build_prompt(post, article)
 
-    for attempt in range(MAX_REWRITE_ROUNDS + 1):
+    rounds = _rewrite_rounds()
+    for attempt in range(rounds + 1):
         raw = _parse(llm(prompt))
 
         hook = clean(str(raw.get("hook", "")))
@@ -547,7 +599,7 @@ def draft(post: dict[str, Any], article: dict[str, Any], llm: LLMFn) -> tuple[st
             t = EMOJI.sub("", locale.to_taiwan(str(t))).strip().replace(" ", "")
             if t:
                 tags.append(t if t.startswith("#") else f"#{t}")
-        tags = tags[:IG_HASHTAG_MAX]
+        tags = tags[:_hashtags_max()]
 
         bad = check_hook(hook, post, source)
         if not bad:
@@ -571,7 +623,7 @@ def draft(post: dict[str, Any], article: dict[str, Any], llm: LLMFn) -> tuple[st
         if not bad:
             return hook, body, tags
 
-        if attempt == MAX_REWRITE_ROUNDS:
+        if attempt == rounds:
             # 改不動就放行，但**把問題印出來**——這是編輯品質，不是平台規則，
             # 沒必要為它丟掉整篇。最後一關本來就是人。
             print(f"    ⚠ 仍不合格（{bad.splitlines()[0][:44]}）→ 照樣輸出，請你自己看")
@@ -647,6 +699,25 @@ def compose_post(slug: str, post_index: int, llm: LLMFn | None = None, force: bo
     """一則貼文 → 一份 post.json（Instagram + Threads 兩版）。"""
     path = post_path(slug, post_index)
 
+    # **LLM 永遠不覆蓋人的編輯**（[[發布前預覽介面]] 的紅線，在資料層執行）。
+    # 人在編輯台改過的文案標著 `human_edited`——那份 caption 已經是「人的最終版」。
+    # 重出圖之後 post.json 會過期，但過期的只有**圖片清單**，不是人寫的字：
+    # 所以這裡只更新 images / image_paths，caption 一個字都不碰，也不叫 LLM。
+    if path.exists():
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            old = {}
+        if old.get("human_edited"):
+            h = read_json("highlights", highlights_path(slug))
+            hpost = h["posts"][post_index - 1] if post_index <= len(h["posts"]) else {}
+            images = collect_images(slug, post_index, original=bool(hpost.get("original")))
+            old["images"] = images
+            for pp in old.get("posts", []):
+                pp["image_paths"] = [i["path"] for i in images]
+            validate("post", old)
+            return write_json("post", path, old)
+
     # **跳過的條件是「產物比所有輸入都新」，不是「檔案存在」。**
     #
     # 輸入有四個，一個都不能漏：
@@ -662,6 +733,7 @@ def compose_post(slug: str, post_index: int, llm: LLMFn | None = None, force: bo
         highlights_path(slug),
         images_dir(slug, post_index),
         PROMPT_DIR,
+        settings.path(),        # 參數（hook 目標等）也是輸入
         Path(__file__).parent,  # src/compose/
     )
     if not force and not is_stale(path, *inputs):
@@ -678,7 +750,7 @@ def compose_post(slug: str, post_index: int, llm: LLMFn | None = None, force: bo
         )
 
     post = h["posts"][post_index - 1]
-    images = collect_images(slug, post_index)
+    images = collect_images(slug, post_index, original=bool(post.get("original")))
 
     # **一次呼叫，兩個平台共用**（Human：「IG 太冗長了，可以跟 Threads 共用」）。
     hook, body, tags = draft(post, article, llm)
@@ -696,6 +768,11 @@ def compose_post(slug: str, post_index: int, llm: LLMFn | None = None, force: bo
             write_one("threads", hook, body, tags, article, images),
         ],
     }
+    # 人宣告原創的貼文沒有「別人的出處」可記——attribution 欄位改記宣告本身，
+    # 讓紀錄誠實反映狀態，而不是留一行不再成立的出處。
+    if post.get("original"):
+        for pp in data["posts"]:
+            pp["attribution"] = "（人已於編輯台宣告：此貼文為原創內容，無外部出處）"
     validate("post", data)
     return write_json("post", path, data)
 

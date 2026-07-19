@@ -1,0 +1,1650 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>編輯台</title>
+<style>
+/* ------------------------------------------------------------------
+   編輯台（[[發布前預覽介面]]）
+   核心：文字是可以直接編輯的東西，不是 prompt 的產物。
+   - 圖卡上的每一個字：點下去直接改（改的就是資料本身）
+   - 出圖是純函式：主題／比例隨時切，不可能弄丟東西
+   - LLM 只提議：建議以 diff 呈現，人逐條接受或拒絕
+   - 面板上沒有任何驗證／原文對照的介面（那條線留在幕後）
+------------------------------------------------------------------- */
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg:#F2F1EE; --panel:#FFFFFF; --ink:#171717; --soft:#6B6862; --mute:#A29D93;
+  --line:#E2DFD8; --acc:#111111; --ok:#0A7A4B; --warn:#B96A00; --bad:#C0392B;
+  --r:10px;
+}
+html,body { height:100%; }
+body { background:var(--bg); color:var(--ink);
+       font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+       font-size:14px; display:flex; overflow:hidden; }
+button { font:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
+         border-radius:7px; padding:6px 12px; color:var(--ink); }
+button:hover { border-color:#BBB; }
+button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+button.pri { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:700; }
+button.ghost { border:none; background:transparent; padding:4px 6px; color:var(--soft); }
+button.ghost:hover { color:var(--ink); }
+input[type=text], textarea { font:inherit; border:1px solid var(--line); border-radius:7px;
+  padding:7px 10px; width:100%; background:#fff; color:var(--ink); }
+textarea { resize:vertical; min-height:70px; line-height:1.7; }
+.small { font-size:12px; color:var(--soft); }
+.tiny { font-size:11px; color:var(--mute); }
+
+/* ---------- 側欄 ---------- */
+#side { width:250px; flex:none; background:var(--panel); border-right:1px solid var(--line);
+        display:flex; flex-direction:column; }
+#side h1 { font-size:16px; padding:16px 16px 4px; }
+#side .hint { padding:0 16px 10px; font-size:11px; color:var(--mute); line-height:1.6; }
+#arts { flex:1; overflow:auto; padding:4px 8px 16px; }
+.art { padding:10px 10px; border-radius:8px; cursor:pointer; margin-bottom:2px; }
+.art:hover { background:#F4F2ED; }
+.art.on { background:#EDEAE2; }
+.art .t { font-size:13px; font-weight:700; line-height:1.45;
+          display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.art .m { font-size:11px; color:var(--mute); margin-top:3px; display:flex; align-items:center; gap:6px; }
+.art .artdel { margin-left:auto; opacity:0; padding:0 4px; font-size:12px; }
+.art:hover .artdel { opacity:.8; }
+.art .artdel:hover { opacity:1; color:var(--bad); }
+#dropHint { margin:10px 12px 14px; border:1.5px dashed var(--line); border-radius:10px;
+            padding:12px; text-align:center; font-size:12px; color:var(--mute); line-height:1.7; }
+
+/* ---------- 主區 ---------- */
+#main { flex:1; display:flex; flex-direction:column; min-width:0; }
+#topbar { background:var(--panel); border-bottom:1px solid var(--line);
+          padding:10px 18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+#topbar .sep { width:1px; height:22px; background:var(--line); }
+#topbar label { font-size:12px; font-weight:700; color:var(--soft); }
+#handle { width:150px; padding:5px 9px; font-size:13px; }
+#saveState { margin-left:auto; font-size:12px; color:var(--mute); }
+#settingsBtn { margin-left:10px; }
+#saveState.err { color:var(--bad); font-weight:700; }
+#tabs { display:flex; gap:6px; align-items:center; padding:12px 18px 0; }
+.tab { padding:6px 14px; border-radius:8px 8px 0 0; border:1px solid var(--line);
+       border-bottom:none; background:#EAE7E0; font-size:13px; cursor:pointer; }
+.tab.on { background:var(--panel); font-weight:700; }
+#viewSel { margin-left:auto; display:flex; gap:6px; }
+#stage { flex:1; overflow:auto; padding:16px 18px 60px; }
+
+/* ---------- 卡片編輯 ---------- */
+#deck { display:grid; grid-template-columns:repeat(auto-fill,minmax(295px,1fr)); gap:16px; }
+.cell { background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
+        overflow:hidden; display:flex; flex-direction:column; }
+.shot { width:100%; aspect-ratio:1/1; position:relative; overflow:hidden; background:#111; }
+.shot[data-ratio="4x5"] { aspect-ratio:4/5; }
+.shot iframe { position:absolute; top:0; left:0; width:1080px; height:1080px; border:0;
+               transform-origin:top left; }
+.cellbar { display:flex; align-items:center; gap:4px; padding:7px 9px;
+           border-top:1px solid var(--line); }
+.cellbar .k { font-size:11px; font-weight:800; letter-spacing:.08em; color:var(--mute); }
+.cellbar .fit { font-size:11px; font-weight:700; margin-left:4px; }
+.fit.ok { color:var(--ok); } .fit.warn { color:var(--warn); } .fit.bad { color:var(--bad); }
+.cellbar .sp { flex:1; }
+.addcell { border:1.5px dashed var(--line); border-radius:var(--r); min-height:200px;
+           display:flex; flex-direction:column; align-items:center; justify-content:center;
+           gap:8px; color:var(--mute); background:transparent; }
+.addcell .row { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+#deckNote { margin:14px 2px 8px; font-size:12px; color:var(--mute); line-height:1.7; }
+
+/* 出處開關（結尾卡那格） */
+.attr { padding:9px 11px; border-top:1px solid var(--line); font-size:12px; line-height:1.6; }
+.attr .sw { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+.dot { width:34px; height:19px; border-radius:10px; background:#CFCBC2; position:relative; flex:none; transition:.15s; }
+.dot::after { content:""; position:absolute; top:2px; left:2px; width:15px; height:15px;
+              border-radius:50%; background:#fff; transition:.15s; }
+.sw.on .dot { background:var(--ok); } .sw.on .dot::after { left:17px; }
+
+/* ---------- 文案 ---------- */
+#capWrap { margin-top:26px; background:var(--panel); border:1px solid var(--line);
+           border-radius:var(--r); padding:16px 18px; max-width:860px; }
+#capWrap h3 { font-size:14px; margin-bottom:4px; }
+#capWrap .row { margin-top:12px; }
+#capWrap .lab { display:flex; align-items:baseline; gap:8px; margin-bottom:5px; }
+#capWrap .lab b { font-size:12px; }
+.counter { font-size:11px; color:var(--mute); } .counter.bad { color:var(--bad); font-weight:700; }
+#capEmpty { color:var(--mute); font-size:13px; line-height:1.8; }
+
+/* ---------- 模擬 ---------- */
+.phone { width:392px; margin:0 auto; background:#fff; border:1px solid var(--line);
+         border-radius:18px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,.08); }
+.phone.dark { background:#101010; color:#F3F3F3; border-color:#222; }
+.ig-head { display:flex; align-items:center; gap:9px; padding:11px 13px; }
+.ava { width:32px; height:32px; border-radius:50%; flex:none;
+       background:conic-gradient(#FEDA75,#FA7E1E,#D62976,#962FBF,#4F5BD5); }
+.phone.dark .ava { background:#333; }
+.ig-head b { font-size:13px; }
+.car { position:relative; width:100%; aspect-ratio:1/1; overflow:hidden; background:#000; }
+.car[data-ratio="4x5"] { aspect-ratio:4/5; }
+.car .strip { display:flex; height:100%; transition:transform .25s; }
+.car .fr { position:relative; width:100%; height:100%; flex:none; overflow:hidden; }
+.car .fr iframe { position:absolute; top:0; left:0; width:1080px; height:1080px; border:0;
+                  transform-origin:top left; pointer-events:none; }
+.car .nav { position:absolute; top:50%; transform:translateY(-50%); width:28px; height:28px;
+            border-radius:50%; background:rgba(255,255,255,.92); border:none; font-size:14px;
+            display:flex; align-items:center; justify-content:center; }
+.car .nav.l { left:8px; } .car .nav.r { right:8px; }
+.car .cnt { position:absolute; top:10px; right:10px; background:rgba(0,0,0,.6); color:#fff;
+            font-size:11px; padding:2px 8px; border-radius:10px; }
+.dots { display:flex; gap:4px; justify-content:center; padding:8px 0 2px; }
+.dots i { width:6px; height:6px; border-radius:50%; background:#C9C5BC; }
+.dots i.on { background:#3897F0; }
+.ig-acts { display:flex; gap:14px; padding:8px 13px 2px; font-size:20px; }
+.ig-cap { padding:6px 13px 16px; font-size:13px; line-height:1.6; white-space:pre-wrap;
+          word-break:break-word; }
+.ig-cap .more { color:var(--mute); cursor:pointer; }
+.th-item { display:flex; gap:10px; padding:14px; }
+.th-item .col { min-width:0; flex:1; }
+.th-cap { font-size:13.5px; line-height:1.7; white-space:pre-wrap; word-break:break-word; margin-top:2px; }
+.th-cap.over { color:#FF6B5E; }
+.th-imgs { display:flex; gap:8px; overflow-x:auto; margin-top:10px; }
+.th-imgs .fr { width:190px; flex:none; aspect-ratio:1/1; border-radius:10px; overflow:hidden;
+               position:relative; border:1px solid #2A2A2A; }
+.th-imgs .fr[data-ratio="4x5"] { aspect-ratio:4/5; }
+.th-imgs .fr iframe { position:absolute; top:0; left:0; width:1080px; height:1080px; border:0;
+                      transform-origin:top left; pointer-events:none; }
+.th-meta { font-size:11px; color:#8A8A8A; margin-top:10px; }
+.simNote { max-width:392px; margin:10px auto 0; font-size:11px; color:var(--mute);
+           line-height:1.7; text-align:center; }
+
+/* ---------- 覆蓋層 ---------- */
+#ovl { position:fixed; inset:0; background:rgba(20,18,14,.45); display:none;
+       align-items:center; justify-content:center; z-index:50; }
+#ovl.show { display:flex; }
+.modal { background:#fff; border-radius:14px; width:min(720px,92vw); max-height:86vh;
+         overflow:auto; padding:20px 22px; }
+.modal h3 { font-size:15px; margin-bottom:8px; }
+.modal .p { font-size:13px; line-height:1.8; color:var(--soft); }
+.modal .btns { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+.qrow { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
+.diff { border:1px solid var(--line); border-radius:9px; padding:10px 12px; margin-top:10px; }
+.diff .dl { font-size:11px; font-weight:800; color:var(--mute); letter-spacing:.06em; margin-bottom:6px; }
+.diff .old, .diff .new { font-size:13px; line-height:1.7; padding:7px 9px; border-radius:6px;
+                          white-space:pre-wrap; word-break:break-word; }
+.diff .old { background:#FBF0EF; color:#8E3B30; text-decoration-color:#D9A79F; margin-bottom:5px; }
+.diff .new { background:#EEF7F0; color:#1E5B3A; }
+.diff del { background:#F6D8D3; text-decoration:line-through; border-radius:3px; }
+.diff ins { background:#CDEBD6; text-decoration:none; border-radius:3px; }
+.diff .act { display:flex; gap:6px; margin-top:8px; }
+.diff.done { opacity:.45; }
+#toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+         background:#1C1B18; color:#fff; padding:10px 18px; border-radius:9px; font-size:13px;
+         max-width:70vw; line-height:1.6; display:none; z-index:99; white-space:pre-wrap; }
+#dropOvl { position:fixed; inset:0; background:rgba(14,17,22,.72); z-index:60; display:none;
+           align-items:center; justify-content:center; color:#fff; font-size:20px; font-weight:800;
+           letter-spacing:.1em; }
+#dropOvl.show { display:flex; }
+#busy { position:fixed; right:20px; bottom:20px; background:#1C1B18; color:#fff;
+        border-radius:11px; padding:12px 16px; font-size:12.5px; display:none; z-index:70;
+        min-width:220px; line-height:1.7; }
+.spin { display:inline-block; width:11px; height:11px; border:2px solid #666; border-top-color:#fff;
+        border-radius:50%; animation:sp 0.8s linear infinite; margin-right:7px; vertical-align:-1px; }
+@keyframes sp { to { transform:rotate(360deg); } }
+#empty { color:var(--mute); text-align:center; margin-top:14vh; line-height:2.1; font-size:14px; }
+
+/* ---------- 後台設定 ---------- */
+.setwrap { max-width:1280px; }
+/* 左欄約佔半個畫面（模型與 API 六格剛好排成 3×2）；右半給提示詞展開 */
+.setcols { display:grid; grid-template-columns:minmax(720px,1fr) minmax(0,1fr); gap:18px;
+           align-items:start; }
+/* 收合時版面不變寬：左欄維持窄欄，右半留白——提示詞展開時就補進這塊空白 */
+.setcols.solo #promptPane { display:none; }
+.gtabs { display:flex; gap:6px; margin:4px 0 8px; }
+.gtabs button { border-radius:8px 8px 0 0; border-bottom:none; background:#EAE7E0; }
+.gtabs button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+.prow { display:flex; align-items:baseline; gap:8px; width:100%; text-align:left;
+        padding:10px 12px; border:1px solid var(--line); border-radius:8px; margin-top:8px;
+        background:#fff; cursor:pointer; font-size:13px; font-weight:700; }
+.prow:hover { border-color:#BBB; }
+.prow.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+.prow.on .tiny { color:#CCC; }
+#promptPane { position:sticky; top:12px; }
+.pane-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.pane-head h3 { margin:0; }
+.pane-body textarea { min-height:calc(100vh - 300px); }
+.pane-body .mdprev { max-height:calc(100vh - 300px); min-height:calc(100vh - 300px); }
+.pane-empty { color:var(--mute); text-align:center; padding:60px 20px !important;
+              font-size:13px; line-height:2; }
+.denrow { display:grid; grid-template-columns:minmax(0,1fr) 200px; gap:14px; align-items:center;
+          padding:12px 0; border-bottom:1px solid var(--line); }
+.denrow:last-of-type { border-bottom:none; }
+.denrow .shot { border-radius:8px; }
+.seg { display:flex; gap:6px; margin:6px 0 4px; flex-wrap:wrap; align-items:center; }
+.seg button { padding:6px 14px; }
+.seg input { width:74px; font:inherit; border:1px solid var(--line); border-radius:7px; padding:6px 8px; }
+.numrow { display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap; padding-top:12px; }
+.numrow .sf { width:150px; }
+details.advwrap { border:1.5px dashed var(--line); border-radius:var(--r); padding:4px 16px 8px; margin-bottom:18px; }
+details.advwrap > summary { cursor:pointer; font-weight:800; font-size:13.5px; padding:10px 2px; color:var(--soft); }
+details.advwrap[open] > summary { margin-bottom:10px; }
+details.advwrap .setcard { border-style:dashed; }
+.setcard { background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
+           padding:18px 20px; margin-bottom:18px; }
+.setcard h3 { font-size:15px; margin-bottom:2px; }
+.setcard .sub2 { font-size:12px; color:var(--mute); margin-bottom:14px; line-height:1.7; }
+.setgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px 16px; }
+.sf label { display:block; font-size:12px; font-weight:700; margin-bottom:3px; }
+.sf input, .sf select { width:100%; font:inherit; border:1px solid var(--line); border-radius:7px;
+                        padding:6px 9px; background:#fff; }
+.sf .d { font-size:11px; color:var(--mute); margin-top:3px; line-height:1.55; }
+.setbtns { display:flex; gap:8px; margin-top:14px; align-items:center; }
+.setbtns .st { font-size:12px; color:var(--ok); }
+.ptab textarea { font-family:ui-monospace,Consolas,monospace; font-size:12.5px; line-height:1.65;
+                 min-height:300px; white-space:pre; }
+details.ptab { border:1px solid var(--line); border-radius:9px; padding:10px 14px; margin-top:10px; }
+details.ptab summary { cursor:pointer; font-weight:700; font-size:13px; }
+.keyrow { display:flex; align-items:center; gap:8px; }
+.grphead { grid-column:1/-1; font-size:12.5px; font-weight:800; letter-spacing:.04em;
+           padding:8px 10px; border-radius:7px; margin-top:4px; }
+.grphead.soft { background:#EEF4EC; color:#2F5D3A; }
+.grphead.hard { background:#F6EDE9; color:#8A4A33; }
+.grphead .tiny { font-weight:400; margin-left:8px; }
+.duo { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px; }
+.duo textarea { min-height:520px; }
+.mdprev { border:1px solid var(--line); border-radius:8px; background:#FBFAF7;
+          padding:14px 18px; overflow:auto; max-height:560px; font-size:13px; line-height:1.75; }
+.mdprev h1 { font-size:17px; margin:10px 0 6px; } .mdprev h2 { font-size:15px; margin:14px 0 6px; }
+.mdprev h3 { font-size:13.5px; margin:12px 0 4px; }
+.mdprev p { margin:6px 0; } .mdprev hr { border:none; border-top:1px solid var(--line); margin:12px 0; }
+.mdprev code { background:#EFECE5; border-radius:4px; padding:1px 5px; font-size:12px;
+               font-family:ui-monospace,Consolas,monospace; }
+.mdprev pre { background:#14161A; color:#D8DEE9; border-radius:8px; padding:10px 12px;
+              font-size:11.5px; line-height:1.6; overflow:auto; margin:8px 0;
+              font-family:ui-monospace,Consolas,monospace; }
+.mdprev pre code { background:none; color:inherit; padding:0; }
+.mdprev table { border-collapse:collapse; margin:8px 0; font-size:12px; }
+.mdprev th, .mdprev td { border:1px solid var(--line); padding:4px 9px; text-align:left; }
+.mdprev th { background:#F1EEE7; }
+.mdprev blockquote { border-left:3px solid #CFCabc; color:var(--soft); padding:2px 10px; margin:6px 0; }
+.mdprev .li { margin:3px 0; }
+.keyok { font-size:11px; color:var(--ok); font-weight:700; white-space:nowrap; }
+.keyno { font-size:11px; color:var(--warn); font-weight:700; white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<div id="side">
+  <h1>編輯台</h1>
+  <div class="hint">素材（.md）直接拖進視窗，就會開始跑。</div>
+  <div id="arts"></div>
+  <div id="dropHint">把 .md 拖到這個視窗<br>→ 讀取 → 抽卡 → 開始編輯</div>
+</div>
+
+<div id="main">
+  <div id="topbar">
+    <label>主題</label>
+    <button id="ta">A 編輯大字</button><button id="tb">B 深色螢光</button>
+    <span class="sep"></span>
+    <label>比例</label>
+    <button id="r1">1:1</button><button id="r2">4:5</button>
+    <span class="sep"></span>
+    <label>IG 帳號</label>
+    <input type="text" id="handle" placeholder="@your_handle">
+    <span class="sep"></span>
+    <span id="saveState"></span>
+    <button id="settingsBtn">⚙ 設定</button>
+  </div>
+  <div id="tabs"></div>
+  <div id="stage"><div id="empty">← 左邊挑一篇素材，或把 .md 拖進來</div></div>
+</div>
+
+<div id="ovl"></div>
+<div id="toast"></div>
+<div id="dropOvl">放開，開始處理素材</div>
+<div id="busy"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   狀態
+===================================================================== */
+const S = {
+  slug: null, hl: null, posts: {},          // highlights ＋ 各則 post.json
+  pi: 1, view: "edit", sub: "cards",        // 目前貼文（1-based）、視圖、編輯分頁（圖卡/文案）
+  cfg: { handle: "@your_handle", theme: "b", ratio: "1x1" },
+  articles: [],
+  cap: null,                                // 文案編輯中的 {hook, body, tags}
+};
+const $ = (q, el) => (el || document).querySelector(q);
+const $$ = (q, el) => Array.from((el || document).querySelectorAll(q));
+const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+
+function toast(msg, ms) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms || 3200);
+}
+async function api(route, body) {
+  const r = await fetch(route, body
+    ? { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) }
+    : undefined);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || (r.status + " " + route));
+  return data;
+}
+
+/* =====================================================================
+   儲存（自動；LLM 永遠不走這條路——只有人的動作會呼叫 markDirty）
+===================================================================== */
+let saveTimer = null;
+function markDirty() {
+  $("#saveState").textContent = "…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 800);
+}
+async function saveNow() {
+  if (!S.slug || !S.hl) return;
+  const el = $("#saveState");
+  try {
+    el.classList.remove("err"); el.textContent = "儲存中…";
+    await api("/api/save/highlights", { slug: S.slug, data: S.hl });
+    el.textContent = "已儲存 ✓";
+  } catch (e) {
+    // 這裡擋下的是版面／契約的物理極限（字數上限、卡片張數）——不是品味
+    el.classList.add("err"); el.textContent = "沒存進去";
+    toast("存檔被擋下來了：\n" + e.message, 6000);
+  }
+}
+
+/* =====================================================================
+   資料存取
+===================================================================== */
+const post = () => S.hl.posts[S.pi - 1];
+const ctx = () => ({
+  title: S.hl.source.title, author: S.hl.source.author || "",
+  url: S.hl.source.url || "", handle: S.cfg.handle, series: "",
+});
+function markEdited(card) {
+  card.edited = true;
+  // 前端同步做一次 evidence 剝除（後端存檔時也會做——資料層才是執法者）
+  delete card.evidence;
+  (card.steps || []).forEach(s => { if (typeof s === "object") delete s.evidence; });
+  ["wrong", "right"].forEach(k => { if (card[k]) delete card[k].evidence; });
+  if (card.type === "quote") card.verbatim = false;
+}
+
+/* =====================================================================
+   卡片 iframe：渲染 + 直接編輯
+===================================================================== */
+function cardFrame(card, opts) {
+  // opts: {scaleTo, editable, onEdit}
+  const shot = document.createElement("div");
+  shot.className = "shot"; shot.dataset.ratio = S.cfg.ratio;
+  const f = document.createElement("iframe");
+  f.src = "/templates/card.html";
+  shot.appendChild(f);
+  const fitEl = opts.fitEl || null;
+
+  const scale = () => {
+    const h = S.cfg.ratio === "1x1" ? 1080 : 1350;
+    f.style.transform = `scale(${shot.clientWidth / 1080})`;
+    f.style.height = h + "px";
+  };
+  const showFit = (r) => {
+    if (!fitEl) return;
+    const splittable = card.type === "point" || card.type === "steps";
+    if (r.overflow) {
+      fitEl.className = "fit " + (splittable ? "warn" : "bad");
+      fitEl.textContent = splittable ? "塞不下→出圖時自動拆卡" : "塞不下！這種卡拆不了，請刪字";
+    } else if (r.fs < (f.contentWindow.CARD_FS_EFFECTIVE ? f.contentWindow.CARD_FS_EFFECTIVE.comfort : f.contentWindow.CARD_COMFORT_FS)) {
+      fitEl.className = "fit " + (splittable ? "warn" : "warn");
+      fitEl.textContent = splittable ? `${r.fs}px→出圖時自動拆卡` : `${r.fs}px（偏擠）`;
+    } else { fitEl.className = "fit ok"; fitEl.textContent = r.fs + "px"; }
+  };
+
+  f.onload = () => {
+    const d = f.contentDocument, w = f.contentWindow;
+    d.body.dataset.theme = S.cfg.theme;
+    d.body.dataset.ratio = S.cfg.ratio;
+    if (S.cfg.render) w.FS_OVERRIDES = { min: S.cfg.render.min_fs, max: S.cfg.render.max_fs, comfort: S.cfg.render.comfort_fs };
+    const r = w.renderCard(card, ctx());
+    scale(); showFit(r);
+    if (opts.editable) bindEditable(f, card, opts.onEdit, opts.onRestore, showFit);
+  };
+  new ResizeObserver(scale).observe(shot);
+  return shot;
+}
+
+/* 卡型 → 可編輯的元素與資料欄位的對照表 */
+function editableMap(doc, card) {
+  const m = [];
+  const one = (sel, get, set) => { const el = doc.querySelector(sel); if (el) m.push({ el, get, set }); };
+  if (card.type === "cover") {
+    one(".angle", () => post().angle, v => post().angle = v);
+    one(".hook", () => post().hook || "", v => post().hook = v);
+  } else if (card.type === "point") {
+    one(".title", () => card.title, v => card.title = v);
+    one(".text", () => card.body, v => card.body = v);
+  } else if (card.type === "steps") {
+    one(".title", () => card.title, v => card.title = v);
+    Array.from(doc.querySelectorAll("ol.steps li span:last-child")).forEach((el, i) =>
+      m.push({ el, get: () => card.steps[i].text ?? card.steps[i],
+               set: v => { if (typeof card.steps[i] === "object") card.steps[i].text = v; else card.steps[i] = v; } }));
+  } else if (card.type === "contrast") {
+    one(".title", () => card.title, v => card.title = v);
+    one(".side.wrong span:last-child", () => card.wrong.text ?? card.wrong, v => card.wrong = { ...(typeof card.wrong === "object" ? card.wrong : {}), text: v });
+    one(".side.right span:last-child", () => card.right.text ?? card.right, v => card.right = { ...(typeof card.right === "object" ? card.right : {}), text: v });
+  } else if (card.type === "quote") {
+    one(".q", () => card.text, v => card.text = v);
+  }
+  return m;
+}
+
+/* DOM → 資料：<mark>重點</mark> 序列化回 **重點** */
+function serialize(el) {
+  let out = "";
+  el.childNodes.forEach(n => {
+    if (n.nodeType === 3) out += n.data;
+    else if (n.nodeName === "MARK") out += "**" + n.textContent + "**";
+    else if (n.nodeName === "BR") out += " ";
+    else out += n.textContent;
+  });
+  return out.replace(/ /g, " ").trim();
+}
+
+/* 聚焦時 caret 在「渲染後文字」的位置 → 換成原始字串後對應的位置（** 是零寬的） */
+function caretOffset(w, el) {
+  const sel = w.getSelection();
+  if (!sel || !sel.rangeCount) return 0;
+  const r = sel.getRangeAt(0), pre = r.cloneRange();
+  pre.selectNodeContents(el); pre.setEnd(r.startContainer, r.startOffset);
+  return pre.toString().length;
+}
+function placeCaret(w, el, pos) {
+  const node = el.firstChild;
+  if (!node || node.nodeType !== 3) return;
+  const r = w.document.createRange();
+  r.setStart(node, Math.min(pos, node.textContent.length));
+  r.collapse(true);
+  const sel = w.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+}
+
+function bindEditable(frame, card, onEdit, onRestore, showFit) {
+  const d = frame.contentDocument, w = frame.contentWindow;
+  editableMap(d, card).forEach(({ el, get, set }) => {
+    el.contentEditable = "true";
+    el.style.outline = "none"; el.style.cursor = "text";
+    el.style.borderRadius = "6px";
+
+    // **點進去看到的是原始文字**：`**重點**` 以標記原樣出現。
+    // 刪掉 ** 就取消螢光，把想強調的字圈進 ** 就是新的重點——
+    // 收筆（Enter 或點別處）後渲染回螢光筆。所見即資料，不用另做什麼「標記模式」。
+    el.addEventListener("focus", () => {
+      el.style.boxShadow = "0 0 0 3px rgba(120,160,255,.55)";
+      if (el.dataset.rawmode === "1") return;
+      const off = caretOffset(w, el);            // 先記住點在哪
+      const raw = String(get() ?? "");
+      el.dataset.rawmode = "1";
+      el.textContent = raw;                      // 渲染 → 原始（** 現形）
+      let vis = 0, pos = 0;                      // 渲染後位移 → 原始位移（跳過 **）
+      while (pos < raw.length && vis < off) {
+        if (raw.startsWith("**", pos)) { pos += 2; continue; }
+        pos++; vis++;
+      }
+      placeCaret(w, el, pos);
+      showFit(w.autofit(d.body));
+    });
+
+    let t = null;
+    el.addEventListener("input", () => {          // 邊打邊重新適配字級（不動資料）
+      clearTimeout(t);
+      t = setTimeout(() => showFit(w.autofit(d.body)), 250);
+    });
+    el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); el.blur(); } });
+    el.addEventListener("blur", () => {           // 收筆＝改資料＋立刻重出這張卡（螢光渲染回來）
+      el.style.boxShadow = "none";
+      delete el.dataset.rawmode;
+      const v = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (!v || v === String(get() ?? "").trim()) {
+        onRestore && onRestore();                 // 沒改也要把螢光畫回來（現在顯示的是原始字串）
+        return;
+      }
+      set(v);
+      onEdit && onEdit();
+    });
+  });
+}
+
+/* =====================================================================
+   編輯視圖（卡片деck ＋ 文案）
+===================================================================== */
+const TYPE_NAME = { cover:"封面", point:"重點", steps:"步驟", contrast:"對照", quote:"金句", outro:"出處" };
+const NEW_CARD = {
+  point:   () => ({ type:"point", title:"新的重點", body:"點文字直接改。這張卡講一個主張，以及它為什麼有效。", edited:true }),
+  steps:   () => ({ type:"steps", title:"新的步驟", steps:[{text:"第一步"},{text:"第二步"}], edited:true }),
+  contrast:() => ({ type:"contrast", title:"新的對照", wrong:{text:"常見錯法"}, right:{text:"正確做法"}, edited:true }),
+  quote:   () => ({ type:"quote", text:"一句值得停下來的話", verbatim:false, edited:true }),
+};
+
+function renderEdit() {
+  const stage = $("#stage");
+  stage.innerHTML = "";
+  const p = post();
+
+  // 文案分頁：只放文案（Human 2026-07-15：不再沉在頁面底部）
+  if (S.sub === "caption") {
+    const cap = captionPanel();
+    cap.style.marginTop = "0";
+    stage.appendChild(cap);
+    return;
+  }
+
+  const deck = document.createElement("div"); deck.id = "deck";
+
+  // -- 封面（angle / hook 都直接改；改標題＝自訂標題）
+  deck.appendChild(cellFor({ type:"cover", angle:p.angle, hook:p.hook, stat:p.stat }, -1));
+
+  // -- 內容卡
+  p.cards.forEach((c, i) => deck.appendChild(cellFor(c, i)));
+
+  // -- 新增卡片
+  const add = document.createElement("div"); add.className = "addcell";
+  add.innerHTML = `<div>＋ 新增卡片</div><div class="row">` +
+    Object.keys(NEW_CARD).map(t => `<button data-t="${t}">${TYPE_NAME[t]}</button>`).join("") + `</div>`;
+  add.addEventListener("click", e => {
+    const t = e.target.dataset && e.target.dataset.t;
+    if (!t) return;
+    const max = (S.cfg.gen && S.cfg.gen.cards_max) || 18;
+    if (p.cards.length >= max) return toast(`一則最多 ${max} 張卡（輪播上限 20 − 封面 − 出處卡）`);
+    p.cards.push(NEW_CARD[t]());
+    markDirty(); renderEdit();
+  });
+  deck.appendChild(add);
+
+  // -- 結尾卡／出處開關
+  deck.appendChild(outroCell(p));
+
+  stage.appendChild(deck);
+
+  const note = document.createElement("div"); note.id = "deckNote";
+  note.textContent = "點卡片上的字直接改：點進去會看到原始的 **…** 標記——圈住的字會印成螢光重點，刪掉 ** 就取消、把想強調的字圈進 ** 就是新的重點。按 Enter 或點別處生效。字級標示是版面的物理事實：塞不下的重點／步驟卡出圖時自動拆卡，其他卡型會被擋。";
+  stage.appendChild(note);
+}
+
+function cellFor(card, idx) {
+  const p = post();
+  const cell = document.createElement("div"); cell.className = "cell";
+  const fit = document.createElement("span");
+  const freshCard = () => idx >= 0 ? p.cards[idx]
+    // 封面的字存在 post 上（angle/hook）——重繪要拿最新的值，不能拿舊的建構物件
+    : { type:"cover", angle:p.angle, hook:p.hook, stat:p.stat };
+  cell.appendChild(cardFrame(card, {
+    editable: true, fitEl: fit,
+    onEdit: () => {
+      if (idx >= 0) markEdited(p.cards[idx]);
+      markDirty();
+      refreshCell(cell, freshCard(), idx);
+    },
+    onRestore: () => refreshCell(cell, freshCard(), idx),
+  }));
+  const bar = document.createElement("div"); bar.className = "cellbar";
+  const k = document.createElement("span"); k.className = "k"; k.textContent = TYPE_NAME[card.type] || card.type;
+  bar.appendChild(k); bar.appendChild(fit);
+  const sp = document.createElement("span"); sp.className = "sp"; bar.appendChild(sp);
+
+  if (idx >= 0) {
+    if (card.type === "steps") {
+      btn(bar, "＋步驟", () => {
+        if (card.steps.length >= 6) return toast("最多 6 步（版面契約）");
+        card.steps.push({ text:"新的一步" }); markEdited(card); markDirty(); renderEdit();
+      });
+      btn(bar, "−步驟", () => {
+        if (card.steps.length <= 2) return toast("至少 2 步");
+        card.steps.pop(); markEdited(card); markDirty(); renderEdit();
+      });
+    }
+    btn(bar, "🤖", () => openSuggest("card", idx));
+    btn(bar, "◀", () => { if (idx > 0) { swap(p.cards, idx, idx - 1); markDirty(); renderEdit(); } });
+    btn(bar, "▶", () => { if (idx < p.cards.length - 1) { swap(p.cards, idx, idx + 1); markDirty(); renderEdit(); } });
+    btn(bar, "🗑", () => {
+      if (p.cards.length <= 2) return toast("至少要 2 張卡（版面契約）");
+      if (!confirm("刪掉這張卡？")) return;
+      p.cards.splice(idx, 1); markDirty(); renderEdit();
+    });
+  } else if (card.type === "cover") {
+    btn(bar, "🤖", () => openSuggest("cover"));
+  }
+  cell.appendChild(bar);
+  return cell;
+}
+function btn(bar, label, fn) { const b = document.createElement("button"); b.className = "ghost"; b.textContent = label; b.onclick = fn; bar.appendChild(b); }
+function swap(a, i, j) { [a[i], a[j]] = [a[j], a[i]]; }
+function refreshCell(cell, card, idx) {
+  const fresh = cellFor(card, idx);
+  cell.replaceWith(fresh);
+}
+
+/* 結尾卡那格：出處開關住在這裡。
+   預設一律附出處；要關掉必須明確宣告「這是我的原創」——錯了也安全的那一邊當預設。 */
+function outroCell(p) {
+  const cell = document.createElement("div"); cell.className = "cell";
+  if (!p.original) {
+    cell.appendChild(cardFrame({ type:"outro" }, { editable:false }));
+  } else {
+    const ph = document.createElement("div");
+    ph.style.cssText = "aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:13px;text-align:center;line-height:1.9";
+    ph.innerHTML = "已宣告原創<br>這則不出結尾卡（出處卡）";
+    cell.appendChild(ph);
+  }
+  const bar = document.createElement("div"); bar.className = "attr";
+  const sw = document.createElement("div"); sw.className = "sw" + (p.original ? "" : " on");
+  sw.innerHTML = `<span class="dot"></span><span>${p.original ? "不附出處（已宣告原創）" : "附出處（預設）"}</span>`;
+  sw.onclick = () => p.original ? reattach(p) : declareOriginal(p);
+  bar.appendChild(sw);
+  cell.appendChild(bar);
+  return cell;
+}
+function declareOriginal(p) {
+  openModal(`
+    <h3>關掉出處？</h3>
+    <div class="p">出處卡是這則貼文<b>唯一</b>標註來源的地方。關掉它，等於宣告這些內容是你的原創——
+    如果實際上取材自別人的作品，那就是把別人的東西掛自己的名字發出去。</div>
+    <div class="p" style="margin-top:10px"><label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+      <input type="checkbox" id="declChk" style="margin-top:3px">
+      <span>我宣告：<b>這則貼文的內容是我的原創</b>，並非取材自他人的文章或影片。</span></label></div>
+    <div class="btns"><button onclick="closeModal()">取消</button>
+    <button class="pri" id="declOk" disabled>宣告並關掉出處</button></div>`);
+  $("#declChk").onchange = e => $("#declOk").disabled = !e.target.checked;
+  $("#declOk").onclick = () => { p.original = true; closeModal(); markDirty(); renderEdit(); };
+}
+function reattach(p) { delete p.original; markDirty(); renderEdit(); }
+
+/* =====================================================================
+   文案（hook / 正文 / hashtag 直接編輯）
+===================================================================== */
+function splitCaption(pj) {
+  const ig = pj.posts.find(x => x.platform === "instagram") || pj.posts[0];
+  const tags = ig.hashtags || [];
+  let cap = ig.caption;
+  const tagLine = tags.join(" ");
+  if (tagLine && cap.endsWith(tagLine)) cap = cap.slice(0, -tagLine.length).trimEnd();
+  const blocks = cap.split("\n\n");
+  return { hook: blocks[0] || "", body: blocks.slice(1).join("\n\n"), tags: tags.slice() };
+}
+function joinCaption(c, withTags) {
+  const parts = [c.hook, c.body].filter(Boolean);
+  if (withTags && c.tags.length) parts.push(c.tags.join(" "));
+  return parts.join("\n\n");
+}
+function captionPanel() {
+  const wrap = document.createElement("div"); wrap.id = "capWrap";
+  const pj = S.posts[String(S.pi)];
+  if (!pj) {
+    wrap.innerHTML = `<h3>文案</h3><div id="capEmpty">這則還沒有文案。按右上角「發布」（或彈窗裡的「輸出到資料夾」），會自動出圖＋寫初稿——之後這裡的每一個字都可以直接改。</div>`;
+    return wrap;
+  }
+  if (!S.cap) S.cap = splitCaption(pj);
+  const c = S.cap;
+  wrap.innerHTML = `
+    <h3>文案 <span class="tiny">IG 與 Threads 共用；差別只有 hashtag</span></h3>
+    <div class="row"><div class="lab"><b>hook</b><span class="counter" id="hookCnt"></span>
+      <span class="sp" style="flex:1"></span>
+      <button class="ghost" id="sugHook">🤖 換一個 hook</button></div>
+      <input type="text" id="capHook"></div>
+    <div class="row"><div class="lab"><b>正文</b><span class="counter" id="bodyCnt"></span>
+      <span class="sp" style="flex:1"></span>
+      <button class="ghost" id="sugShort">🤖 改短</button>
+      <button class="ghost" id="sugFree">🤖 自由指示…</button></div>
+      <textarea id="capBody" rows="7"></textarea></div>
+    <div class="row"><div class="lab"><b>hashtag</b><span class="tiny">只有 IG 會带；空格分隔</span></div>
+      <input type="text" id="capTags"></div>
+    <div class="row tiny" id="capMeta"></div>`;
+  $("#capHook", wrap).value = c.hook;
+  $("#capBody", wrap).value = c.body;
+  $("#capTags", wrap).value = c.tags.join(" ");
+  const upd = () => {
+    c.hook = $("#capHook", wrap).value;
+    c.body = $("#capBody", wrap).value;
+    c.tags = $("#capTags", wrap).value.split(/\s+/).filter(Boolean).map(t => t.startsWith("#") ? t : "#" + t);
+    const hookN = c.hook.length, thN = joinCaption(c, false).length;
+    const h = $("#hookCnt", wrap); h.textContent = `${hookN} / 125（IG 折疊線）`; h.className = "counter" + (hookN > 125 ? " bad" : "");
+    const b = $("#bodyCnt", wrap); b.textContent = `Threads 全文 ${thN} / 500`; b.className = "counter" + (thN > 500 ? " bad" : "");
+    $("#capMeta", wrap).textContent = "出處不在文案裡——它印在最後一張圖卡上。";
+  };
+  upd();
+  let t = null;
+  wrap.addEventListener("input", () => { upd(); clearTimeout(t); t = setTimeout(saveCaption, 900); });
+  $("#sugHook", wrap).onclick = () => openSuggest("caption", null, "只換 hook：給一句更會讓人停下手指的話，其他照舊");
+  $("#sugShort", wrap).onclick = () => openSuggest("caption", null, "把正文改短：砍掉整句或整段，不要縮寫成流水帳");
+  $("#sugFree", wrap).onclick = () => openSuggest("caption", null, "");
+  return wrap;
+}
+async function saveCaption() {
+  const pj = S.posts[String(S.pi)];
+  if (!pj || !S.cap) return;
+  const el = $("#saveState");
+  try {
+    el.textContent = "儲存中…"; el.classList.remove("err");
+    await api("/api/save/post", { slug: S.slug, post_index: S.pi, posts: [
+      { platform: "instagram", caption: joinCaption(S.cap, true), hashtags: S.cap.tags },
+      { platform: "threads", caption: joinCaption(S.cap, false) },
+    ]});
+    pj.human_edited = true;
+    el.textContent = "已儲存 ✓";
+  } catch (e) { el.classList.add("err"); el.textContent = "沒存進去"; toast("文案存檔被擋：\n" + e.message, 6000); }
+}
+
+/* =====================================================================
+   發布（右上角單鍵 → 彈窗；[[一鍵發布到 IG 與 Threads]]＋本地輸出保險）
+===================================================================== */
+function openPublishModal() {
+  if (!S.slug) return toast("先挑一篇素材");
+  const destHint = `發布暫存/${S.slug}-p${S.pi}/`;
+  openModal(`
+    <h3>發布</h3>
+    <div class="p">半自動：瀏覽器開站、圖片就位、文案已貼——<b>最後的「分享」由你按</b>。
+    第一次使用會請你在打開的視窗登入。</div>
+    <div class="setbtns" style="margin-top:14px">
+      <button class="pri" id="pubIG">發布到 IG</button>
+      <button class="pri" id="pubTH">發布到 Threads</button>
+    </div>
+    <div class="p" style="margin-top:16px"><b>輸出到本地資料夾</b>（發布失效時的保險）：
+    圖片照發文順序重新命名（01.png…）＋ IG 與 Threads 兩版文案 txt。</div>
+    <div class="p" style="margin-top:6px">輸出位置：<code id="pubDest" style="font-size:12.5px">專案資料夾/${esc(destHint)}</code></div>
+    <div class="setbtns"><button id="pubLocal">輸出到資料夾（完成後自動開啟）</button><span class="tiny" id="pubSt"></span></div>
+    <div class="btns"><button onclick="closeModal()">關閉</button></div>`);
+  const reload = async () => {   // 發布前自動補齊了圖與文案 → 面板資料跟著更新
+    try { S.posts = (await api("/api/article?slug=" + encodeURIComponent(S.slug))).posts; S.cap = null; renderAll(); }
+    catch (e) { /* noop */ }
+  };
+  const go = async platform => {
+    await saveNow(); closeModal();
+    try {
+      const { job } = await api("/api/publish", { slug: S.slug, post_index: S.pi, platform });
+      watchJob(job, platform === "instagram" ? "發布到 IG" : "發布到 Threads", reload);
+    } catch (e) { toast(e.message, 8000); }
+  };
+  $("#pubIG").onclick = () => go("instagram");
+  $("#pubTH").onclick = () => go("threads");
+  $("#pubLocal").onclick = async () => {
+    await saveNow();
+    $("#pubSt").textContent = "輸出中…（會先同步圖與文案）";
+    try {
+      const { job } = await api("/api/export-local", { slug: S.slug, post_index: S.pi, open: true });
+      const tick = async () => {
+        const j = await api("/api/job?id=" + job);
+        if (j.status === "running") { $("#pubSt") && ($("#pubSt").textContent = j.stage || "輸出中…"); setTimeout(tick, 1000); }
+        else if (j.status === "done") {
+          if ($("#pubDest")) { $("#pubDest").textContent = j.path; $("#pubSt").textContent = "完成 ✓ 已開啟資料夾"; }
+          reload();
+        } else { $("#pubSt") && ($("#pubSt").textContent = ""); toast("輸出失敗：" + (j.error || ""), 8000); }
+      };
+      tick();
+    } catch (e) { $("#pubSt").textContent = ""; toast(e.message, 8000); }
+  };
+}
+
+/* =====================================================================
+   LLM 建議（diff 呈現，人逐條接受／拒絕；永遠不直接覆蓋）
+===================================================================== */
+function textFields(card) {
+  // 送給模型的內容：**只有文字**。evidence／edited 這些資料層的事不出現在這條路上。
+  const c = JSON.parse(JSON.stringify(card));
+  delete c.evidence; delete c.edited;
+  (c.steps || []).forEach(s => delete s.evidence);
+  ["wrong","right"].forEach(k => { if (c[k]) delete c[k].evidence; });
+  delete c.verbatim;
+  return c;
+}
+function openSuggest(scope, cardIdx, presetInstruction) {
+  const quick = scope === "card"
+    ? ["改短", "換個說法", "更口語", "把重點標出來"]
+    : scope === "cover" ? ["換一個 hook", "標題更有張力", "更具體"]
+    : scope === "redraft" ? [] : [];
+  openModal(`
+    <h3>${scope === "redraft" ? "重新起草這則" : "請模型給建議"}</h3>
+    <div class="p">模型只會給<b>建議</b>，以並排差異呈現——要不要採用，一條一條由你決定。</div>
+    ${scope === "redraft" ? `<div class="row" style="margin-top:10px"><div class="lab"><b>題目與走向</b><span class="tiny">可留白＝模型自己判斷。例：「走實戰路線，聚焦步驟」「入門介紹，講給第一次聽的人」</span></div><input type="text" id="sgDir"></div>` : ""}
+    <div class="qrow">${quick.map(q => `<button data-q="${q}">${q}</button>`).join("")}</div>
+    <div class="row"><input type="text" id="sgFree" placeholder="或自己下指示，例：這張卡幫我改短、語氣不要像說明書"></div>
+    <div class="btns"><button onclick="closeModal()">取消</button><button class="pri" id="sgGo">要建議</button></div>
+    <div id="sgOut"></div>`);
+  if (presetInstruction !== undefined && presetInstruction !== "") $("#sgFree").value = presetInstruction;
+  const go = instr => runSuggest(scope, cardIdx, instr);
+  $$(".qrow button").forEach(b => b.onclick = () => go(b.dataset.q));
+  $("#sgGo").onclick = () => {
+    const dir = $("#sgDir") ? $("#sgDir").value.trim() : "";
+    const instr = [$("#sgFree").value.trim(), dir && ("題目與走向：" + dir)].filter(Boolean).join("；");
+    go(instr);
+  };
+}
+async function runSuggest(scope, cardIdx, instruction) {
+  const p = post();
+  let kind, content;
+  if (scope === "card") { kind = p.cards[cardIdx].type; content = textFields(p.cards[cardIdx]); }
+  else if (scope === "cover") { kind = "cover"; content = { angle: p.angle, hook: p.hook || "" }; }
+  else if (scope === "caption") { kind = "caption"; content = { hook: S.cap.hook, body: S.cap.body, hashtags: S.cap.tags }; }
+  else { kind = "redraft"; content = { angle: p.angle, hook: p.hook || "", cards: p.cards.map(textFields) }; }
+  const out = $("#sgOut");
+  out.innerHTML = `<div class="p" style="margin-top:14px"><span class="spin"></span>模型正在想…（十幾秒）</div>`;
+  try {
+    const { suggestion } = await api("/api/suggest", { slug: S.slug, kind, content, instruction });
+    out.innerHTML = "";
+    buildDiffs(scope, cardIdx, content, suggestion, out);
+  } catch (e) { out.innerHTML = `<div class="p" style="color:var(--bad);margin-top:12px">要不到建議：${esc(e.message)}</div>`; }
+}
+
+/* 字元層級 diff（LCS）——句子等級的比對，夠用了 */
+function charDiff(a, b) {
+  a = Array.from(a); b = Array.from(b);
+  const n = a.length, m = b.length;
+  if (n * m > 250000) return { old: esc(a.join("")), neu: esc(b.join("")) }; // 太長就不逐字比
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = a[i] === b[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
+  let i = 0, j = 0, oldH = "", newH = "";
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { oldH += esc(a[i]); newH += esc(b[j]); i++; j++; }
+    else if (dp[i+1][j] >= dp[i][j+1]) { oldH += `<del>${esc(a[i])}</del>`; i++; }
+    else { newH += `<ins>${esc(b[j])}</ins>`; j++; }
+  }
+  while (i < n) { oldH += `<del>${esc(a[i++])}</del>`; }
+  while (j < m) { newH += `<ins>${esc(b[j++])}</ins>`; }
+  return { old: oldH, neu: newH };
+}
+function flat(x) {
+  if (x == null) return "";
+  if (typeof x === "string") return x;
+  if (Array.isArray(x)) return x.map(flat).join("\n");
+  if (typeof x === "object") {
+    if ("text" in x && Object.keys(x).length <= 2) return x.text;
+    return ["title","body","text","steps","wrong","right"].filter(k => k in x)
+      .map(k => (k === "wrong" ? "✗ " : k === "right" ? "✓ " : "") + flat(x[k])).join("\n");
+  }
+  return String(x);
+}
+function diffRow(out, label, oldVal, newVal, apply) {
+  const o = flat(oldVal), n = flat(newVal);
+  if (o.trim() === n.trim()) return;
+  const d = charDiff(o, n);
+  const el = document.createElement("div"); el.className = "diff";
+  el.innerHTML = `<div class="dl">${esc(label)}</div>
+    <div class="old">${d.old || "（空）"}</div><div class="new">${d.neu || "（空）"}</div>
+    <div class="act"><button class="pri">接受</button><button>略過</button></div>`;
+  const [ok, no] = el.querySelectorAll(".act button");
+  ok.onclick = () => { apply(); el.classList.add("done"); ok.disabled = no.disabled = true; ok.textContent = "已套用"; markDirty(); };
+  no.onclick = () => { el.classList.add("done"); ok.disabled = no.disabled = true; };
+  out.appendChild(el);
+}
+function buildDiffs(scope, cardIdx, oldC, sug, out) {
+  const p = post();
+  let any = false; const row = (...a) => { any = true; diffRow(...a); };
+  if (scope === "card") {
+    const card = p.cards[cardIdx];
+    const applyField = fn => () => { fn(); markEdited(card); };
+    if (sug.title !== undefined && card.title !== undefined) row(out, "標題", card.title, sug.title, applyField(() => card.title = sug.title));
+    if (sug.body !== undefined) row(out, "內文", card.body, sug.body, applyField(() => card.body = sug.body));
+    if (sug.text !== undefined) row(out, "文字", card.text, sug.text, applyField(() => card.text = sug.text));
+    if (sug.steps) row(out, "步驟", card.steps, sug.steps, applyField(() => card.steps = sug.steps.map(s => typeof s === "object" ? { text: s.text } : { text: s })));
+    if (sug.wrong) row(out, "錯法", card.wrong, sug.wrong, applyField(() => card.wrong = { text: flat(sug.wrong) }));
+    if (sug.right) row(out, "正確", card.right, sug.right, applyField(() => card.right = { text: flat(sug.right) }));
+  } else if (scope === "cover") {
+    if (sug.angle !== undefined) row(out, "標題（angle）", p.angle, sug.angle, () => p.angle = sug.angle);
+    if (sug.hook !== undefined) row(out, "副標（hook）", p.hook || "", sug.hook, () => p.hook = sug.hook);
+  } else if (scope === "caption") {
+    if (sug.hook !== undefined) row(out, "hook", S.cap.hook, sug.hook, () => { S.cap.hook = sug.hook; saveCaption(); });
+    if (sug.body !== undefined) row(out, "正文", S.cap.body, sug.body, () => { S.cap.body = sug.body; saveCaption(); });
+    if (sug.hashtags) row(out, "hashtag", S.cap.tags.join(" "), (sug.hashtags || []).join(" "),
+      () => { S.cap.tags = sug.hashtags.map(t => t.startsWith("#") ? t : "#" + t); saveCaption(); });
+  } else { // redraft：逐張卡並排
+    if (sug.angle !== undefined) row(out, "標題（angle）", p.angle, sug.angle, () => p.angle = sug.angle);
+    if (sug.hook !== undefined) row(out, "副標（hook）", p.hook || "", sug.hook, () => p.hook = sug.hook);
+    const sc = sug.cards || [];
+    const max = Math.max(p.cards.length, sc.length);
+    for (let i = 0; i < max; i++) {
+      const oldCard = p.cards[i], newCard = sc[i];
+      const label = `卡片 ${i + 1}` + (newCard ? `（${TYPE_NAME[newCard.type] || newCard.type}）` : "");
+      if (oldCard && newCard) {
+        row(out, label, textFields(oldCard), newCard, ((idx, nc) => () => {
+          const c = normalizeCard(nc); if (c) { p.cards[idx] = c; }
+        })(i, newCard));
+      } else if (!oldCard && newCard) {
+        row(out, label + "（新增）", "", newCard, ((nc) => () => {
+          const c = normalizeCard(nc); if (c && p.cards.length < 6) p.cards.push(c);
+        })(newCard));
+      } else if (oldCard && !newCard) {
+        row(out, label + "（建議刪除）", textFields(oldCard), "", ((idx) => () => {
+          if (p.cards.length > 2) p.cards.splice(idx, 1);
+        })(i));
+      }
+    }
+  }
+  if (!any) out.innerHTML = `<div class="p" style="margin-top:12px">模型覺得不用改（或改了跟沒改一樣）。換個指示再試。</div>`;
+  else {
+    const done = document.createElement("div"); done.className = "btns";
+    done.innerHTML = `<button class="pri">完成，回到編輯</button>`;
+    done.querySelector("button").onclick = () => { closeModal(); renderEdit(); };
+    out.appendChild(done);
+  }
+}
+function normalizeCard(c) {
+  try {
+    const t = c.type;
+    if (t === "point") return { type:"point", title:String(c.title||"重點"), body:String(c.body||""), edited:true };
+    if (t === "quote") return { type:"quote", text:String(c.text||""), verbatim:false, edited:true };
+    if (t === "steps") return { type:"steps", title:String(c.title||"步驟"),
+      steps:(c.steps||[]).map(s => ({ text: String((s && s.text) ?? s ?? "") })).filter(s => s.text), edited:true };
+    if (t === "contrast") return { type:"contrast", title:String(c.title||"對照"),
+      wrong:{ text: flat(c.wrong) }, right:{ text: flat(c.right) }, edited:true };
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+/* =====================================================================
+   IG／Threads 模擬
+===================================================================== */
+function deckCards() {
+  const p = post();
+  const cards = [{ type:"cover", angle:p.angle, hook:p.hook, stat:p.stat }, ...p.cards];
+  if (!p.original) cards.push({ type:"outro" });
+  return cards;
+}
+function frameInto(container, card, widthPx) {
+  const f = document.createElement("iframe"); f.src = "/templates/card.html";
+  container.appendChild(f);
+  f.onload = () => {
+    const d = f.contentDocument;
+    d.body.dataset.theme = S.cfg.theme; d.body.dataset.ratio = S.cfg.ratio;
+    if (S.cfg.render) f.contentWindow.FS_OVERRIDES = { min: S.cfg.render.min_fs, max: S.cfg.render.max_fs, comfort: S.cfg.render.comfort_fs };
+    f.contentWindow.renderCard(card, ctx());
+    const h = S.cfg.ratio === "1x1" ? 1080 : 1350;
+    f.style.transform = `scale(${(widthPx || container.clientWidth) / 1080})`;
+    f.style.height = h + "px";
+  };
+}
+function renderIG() {
+  const stage = $("#stage"); stage.innerHTML = "";
+  const cards = deckCards();
+  const pj = S.posts[String(S.pi)];
+  const cap = S.cap || (pj ? splitCaption(pj) : null);
+  const text = cap ? joinCaption(cap, true) : "（還沒有文案——按「出圖＋文案」產生初稿）";
+  const FOLD = 125;
+  const phone = document.createElement("div"); phone.className = "phone";
+  phone.innerHTML = `
+    <div class="ig-head"><span class="ava"></span><b>${esc(S.cfg.handle.replace(/^@/, ""))}</b></div>
+    <div class="car" data-ratio="${S.cfg.ratio}"><div class="strip"></div>
+      <button class="nav l">‹</button><button class="nav r">›</button><span class="cnt"></span></div>
+    <div class="dots"></div>
+    <div class="ig-acts"><span>♡</span><span>💬</span><span>↗</span><span style="margin-left:auto">⌲</span></div>
+    <div class="ig-cap"></div>`;
+  const strip = $(".strip", phone);
+  cards.forEach(c => { const fr = document.createElement("div"); fr.className = "fr"; strip.appendChild(fr); frameInto(fr, c, 390); });
+  const dots = $(".dots", phone);
+  cards.forEach((_, i) => { const d = document.createElement("i"); if (!i) d.className = "on"; dots.appendChild(d); });
+  let at = 0;
+  const show = () => {
+    strip.style.transform = `translateX(-${at * 100}%)`;
+    $(".cnt", phone).textContent = `${at + 1}/${cards.length}`;
+    $$(".dots i", phone).forEach((d, i) => d.className = i === at ? "on" : "");
+  };
+  $(".nav.l", phone).onclick = () => { at = Math.max(0, at - 1); show(); };
+  $(".nav.r", phone).onclick = () => { at = Math.min(cards.length - 1, at + 1); show(); };
+  show();
+  // 折疊行為跟真的 IG 一樣：超過 125 字收起來，點「更多」展開
+  const capEl = $(".ig-cap", phone);
+  const user = `<b>${esc(S.cfg.handle.replace(/^@/, ""))}</b> `;
+  const renderCap = expanded => {
+    if (expanded || text.length <= FOLD) capEl.innerHTML = user + esc(text);
+    else capEl.innerHTML = user + esc(text.slice(0, FOLD)) + `<span class="more">… 更多</span>`;
+    const m = $(".more", capEl); if (m) m.onclick = () => renderCap(true);
+  };
+  renderCap(false);
+  stage.appendChild(phone);
+  const note = document.createElement("div"); note.className = "simNote";
+  note.textContent = "IG 動態的折疊線在 125 字——「更多」之前的字是唯一保證會被讀到的。";
+  stage.appendChild(note);
+}
+function renderThreads() {
+  const stage = $("#stage"); stage.innerHTML = "";
+  const cards = deckCards();
+  const pj = S.posts[String(S.pi)];
+  const cap = S.cap || (pj ? splitCaption(pj) : null);
+  const text = cap ? joinCaption(cap, false) : "（還沒有文案——按「出圖＋文案」產生初稿）";  // Threads：無 hashtag
+  const over = text.length > 500;
+  const phone = document.createElement("div"); phone.className = "phone dark";
+  phone.innerHTML = `
+    <div class="th-item"><span class="ava"></span><div class="col">
+      <b style="font-size:13.5px">${esc(S.cfg.handle.replace(/^@/, ""))}</b>
+      <div class="th-cap ${over ? "over" : ""}">${esc(text)}</div>
+      <div class="th-imgs"></div>
+      <div class="th-meta">${text.length} / 500 字${over ? "　⚠ 超過 500 字——Threads 發不出去，回編輯把正文改短" : ""}　·　無 hashtag（Threads 版不帶）</div>
+    </div></div>`;
+  const imgs = $(".th-imgs", phone);
+  cards.forEach(c => { const fr = document.createElement("div"); fr.className = "fr"; fr.dataset.ratio = S.cfg.ratio; imgs.appendChild(fr); frameInto(fr, c, 190); });
+  stage.appendChild(phone);
+  const note = document.createElement("div"); note.className = "simNote";
+  note.textContent = "Threads 單欄、不帶 hashtag；上限 500 字，超過標紅。";
+  stage.appendChild(note);
+}
+
+/* =====================================================================
+   後台設定（[[編輯台後台設定]]）
+   把 schema／prompt／程式裡的隱藏參數攤在陽光下。三區：
+   生成參數（數字改了 → prompt 與 schema 一起變、舊產物過期）
+   AI 提示詞（直接編 prompts/*.md，存檔即生效，可回復預設）
+   模型與 API（key 只寫 .env，永不回顯）
+===================================================================== */
+// 軟限制＝編輯目標：寫進提示詞的傾向，模型往這裡寫，**超過不會被擋**
+const GEN_SOFT = [
+  ["cards_target",        "卡數目標",            "一則貼文幾張卡最舒服（例：4–5）"],
+  ["point_body_target",   "重點卡內文・目標字數", "Human 選定的密度（中等 80）。模型往這個數字寫"],
+  ["steps_step_target",   "每步・目標字數",       "精簡、字大、一眼看完（預設 25）"],
+  ["contrast_side_target","對照卡每邊・目標字數", "錯法／正確各自的目標"],
+  ["hook_target",         "文案 hook・目標字數",  "hook 的硬上限永遠是 IG 折疊線 125，這裡只管目標"],
+];
+// 硬限制＝物理上限：schema 執法，**超過整份被退回重做**
+const GEN_HARD = [
+  ["posts_max",     "批次時產出幾則",     "只影響不經拖放的批次腳本（分析全部素材.bat）。拖放時則數＝格數，跟這裡無關"],
+  ["point_body_max","重點卡內文・上限",   "版面實測 548 字都印得下——這是編輯判斷，不是技術極限"],
+  ["steps_max",     "步驟卡最多幾步",     "塞不下版面時渲染器會自動拆卡"],
+  ["steps_step_max","每步・上限",         "留給「本來就必須講清楚」的操作細節，不是給模型寫滿的"],
+  ["contrast_side_max","對照卡每邊・上限", "對照卡拆不了，超過只能回頭改文案"],
+  ["quote_max",     "金句・上限",         "金句卡字級最大，這是所有欄位裡最緊的一格"],
+  ["title_max",     "卡片標題・上限",     "重點／步驟／對照三種卡的標題共用"],
+  ["angle_max",     "封面標題・上限",     "封面卡的大標（angle）"],
+  ["cover_hook_max","封面副標・上限",     "封面卡的副標（讀者能帶走什麼）"],
+  ["summary_max_items","summary 最多幾條", "內部用的全文摘要（不上圖卡），下限固定 3"],
+  ["summary_item_max","summary 每條・上限", "摘要單條的字數"],
+  ["hashtags_max",  "hashtag 最多幾個",   "下限固定 3；IG 文案端同步遵守"],
+];
+const GEN_FIELDS = [...GEN_SOFT, ...GEN_HARD];
+/* 迷你 Markdown 預覽（零依賴）。夠用就好：標題、粗體、行內碼、圍欄、表格、清單、引用、分隔線 */
+function mdRender(md) {
+  const e_ = t => t.replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+  const inline = t => e_(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const lines = md.split("\n");
+  let out = "", i = 0, fence = false, fbuf = [], pbuf = [];
+  const closeP = () => { if (pbuf.length) { out += `<p>${pbuf.map(inline).join("<br>")}</p>`; pbuf = []; } };
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.trim().startsWith("```")) {
+      if (!fence) { closeP(); fence = true; fbuf = []; }
+      else { fence = false; out += `<pre><code>${e_(fbuf.join("\n"))}</code></pre>`; }
+      i++; continue;
+    }
+    if (fence) { fbuf.push(l); i++; continue; }
+    if (/^\s*$/.test(l)) { closeP(); i++; continue; }
+    const h = l.match(/^(#{1,6})\s+(.*)/);
+    if (h) { closeP(); const n = Math.min(h[1].length, 3); out += `<h${n}>${inline(h[2])}</h${n}>`; i++; continue; }
+    if (/^\s*-{3,}\s*$/.test(l)) { closeP(); out += "<hr>"; i++; continue; }
+    if (/^\s*>/.test(l)) { closeP(); out += `<blockquote>${inline(l.replace(/^\s*>\s?/, ""))}</blockquote>`; i++; continue; }
+    if (l.trim().startsWith("|")) {
+      closeP(); const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) { rows.push(lines[i].trim()); i++; }
+      out += "<table>" + rows.filter(r => !/^\|[\s:|-]+\|$/.test(r)).map((r, ri) => {
+        const tag = ri === 0 ? "th" : "td";
+        return "<tr>" + r.split("|").slice(1, -1).map(c => `<${tag}>${inline(c.trim())}</${tag}>`).join("") + "</tr>";
+      }).join("") + "</table>"; continue;
+    }
+    const li = l.match(/^([\t ]*)[-*]\s+(.*)/);
+    if (li) {
+      closeP();
+      const depth = li[1].replace(/\t/g, "  ").length;
+      out += `<div class="li" style="margin-left:${depth * 7}px">• ${inline(li[2])}</div>`;
+      i++; continue;
+    }
+    pbuf.push(l); i++;
+  }
+  closeP();
+  return out;
+}
+
+const PROMPT_NAMES = { highlights:"知識卡抽取（分析階段）", caption:"貼文文案", suggest:"編輯台建議" };
+
+async function renderSettings() {
+  const stage = $("#stage");
+  stage.innerHTML = `<div class="p" style="color:var(--mute)">讀取設定中…</div>`;
+  let d;
+  try { d = await api("/api/settings"); }
+  catch (e) { stage.innerHTML = ""; toast("讀不到設定：" + e.message, 6000); return; }
+  const g = d.settings.generation, l = d.settings.llm;
+  stage.innerHTML = "";
+
+  // 版面：左＝設定卡片；右＝提示詞固定展開區（Human 2026-07-15 的畫法）
+  const cols = document.createElement("div"); cols.className = "setcols";
+  const left = document.createElement("div");
+  const right = document.createElement("div"); right.id = "promptPane";
+  cols.appendChild(left); cols.appendChild(right);
+  stage.appendChild(cols);
+
+  // ---- 常用設定：密度檔位＋即時示意卡（你當初就是看圖選密度的——比較密度.bat 的精神） ----
+  const POINT_POOL = [
+    "把附件的預設資料夾改成獨立資料夾，側邊欄就不會被圖片塞爆。",
+    "**結構要用掙的**：先把筆記丟進大桶子，模式浮現了再分類。",
+    "給 AI 一張資料夾地圖，它就不必掃全庫，直接知道去哪找。",
+    "改名時開啟自動更新連結，舊連結才不會整批斷掉。",
+    "熱鍵越熟，筆記的摩擦力越小，你才會真的想用它。",
+  ];
+  // 句子要夠長，三個檔位（25／40／60）切出來才看得出差別——太短的話中等與充分會長一樣
+  const STEP_SRC = [
+    "開啟設定，到「檔案與連結」把**自動更新內部連結**打開，之後改筆記名稱時，所有指向它的連結都會自動跟著更新，不會整批斷掉變成孤兒",
+    "輸入兩個左中括號開始打字，把這個想法連到既有的筆記；存檔後圖譜馬上多一個節點，回顧時能沿著連結把相關的想法一路找回來",
+    "把附件的預設資料夾改成獨立的資料夾，圖片與文件就不會散落在筆記側邊欄裡，之後要找檔案或整批搬移都輕鬆得多",
+  ];
+  const textOfLength = (pool, target) => {
+    let out = "";
+    for (let i = 0; out.length < target && i < pool.length * 3; i++) {
+      const sent = pool[i % pool.length];
+      if (out.length && out.length + sent.length > target * 1.25) break;   // 示意卡誤差 ±25% 內
+      out += sent;
+    }
+    return out || pool[0];
+  };
+  const cut = (t, n) => Array.from(t).length <= n ? t : Array.from(t).slice(0, n - 1).join("") + "…";
+  const samplePoint = t => ({ type:"point", title:"密度示意", body: textOfLength(POINT_POOL, t) });
+  const sampleSteps = t => ({ type:"steps", title:"密度示意", steps: STEP_SRC.map(x => ({ text: cut(x, t) })) });
+
+  const DENS = [
+    ["point_body_target", "重點卡密度", [["精簡",40],["中等",80],["充分",130]], samplePoint,
+     "一張重點卡放多少字，讀者才願意讀完。點檔位，右邊立刻看到那檔長什麼樣"],
+    ["steps_step_target", "步驟卡密度", [["精簡",25],["中等",40],["充分",60]], sampleSteps,
+     "每一步寫多滿。精簡＝字大、一眼看完；充分＝講得清楚但滿"],
+  ];
+  const common = document.createElement("div"); common.className = "setcard";
+  common.innerHTML = `<h3>常用設定</h3>
+    <div class="sub2">平常只需要動這裡。改了會讓舊產物過期——重跑「分析全部素材」生效。
+    完整參數在下面的「全部設定（進階）」。</div>`;
+  for (const [key, label, levels, sample, desc] of DENS) {
+    const row = document.createElement("div"); row.className = "denrow";
+    const ctrl = document.createElement("div");
+    ctrl.innerHTML = `<label style="font-size:12.5px;font-weight:800">${label}</label>
+      <div class="seg">` + levels.map(([n, v]) => `<button data-v="${v}">${n} ${v}字</button>`).join("") +
+      `<input type="number" data-cust value="${esc(String(g[key]))}" title="自訂字數"><span class="tiny">字</span></div>
+      <div class="d">${desc}</div><div class="tiny st" data-dst></div>`;
+    const shotBox = document.createElement("div");
+    row.appendChild(ctrl); row.appendChild(shotBox);
+    const drawShot = () => { shotBox.innerHTML = ""; shotBox.appendChild(cardFrame(sample(g[key]), { editable:false })); };
+    const sync = () => {
+      $$(".seg button", ctrl).forEach(b => b.className = parseInt(b.dataset.v, 10) === g[key] ? "on" : "");
+      ctrl.querySelector("[data-cust]").value = String(g[key]);
+      drawShot();
+    };
+    const apply = async v => {
+      if (!v || v === g[key]) { sync(); return; }
+      try {
+        await api("/api/settings", { settings: { generation: { [key]: v } } });
+        g[key] = v; sync();
+        ctrl.querySelector("[data-dst]").textContent = "已套用 ✓（舊產物已過期）";
+      } catch (e) { toast(e.message, 7000); sync(); }
+    };
+    $$(".seg button", ctrl).forEach(b => b.onclick = () => apply(parseInt(b.dataset.v, 10)));
+    const cust = ctrl.querySelector("[data-cust]");
+    cust.addEventListener("change", () => apply(parseInt(cust.value, 10)));
+    sync();
+    common.appendChild(row);
+  }
+  {
+    const nums = document.createElement("div"); nums.className = "numrow";
+    nums.innerHTML = `<span class="tiny" style="padding-bottom:6px">
+      要產出幾則？拖素材進來時每則一格、＋號加則。
+      一則的圖片上限是平台定的（輪播 20 張＝封面＋最多 18 張卡＋出處卡），不用設。</span>`;
+    common.appendChild(nums);
+  }
+  left.appendChild(common);
+
+  // ---- 生成參數：軟／硬限制做成分頁 ----
+  const gen = document.createElement("div"); gen.className = "setcard";
+  const grid = fields => fields.map(([k, label, desc]) => `
+      <div class="sf"><label>${label}</label>
+        <input data-k="${k}" type="${typeof g[k] === "number" ? "number" : "text"}" value="${esc(String(g[k]))}">
+        <div class="d">${desc}</div></div>`).join("");
+  gen.innerHTML = `<h3>生成參數</h3>
+    <div class="sub2">同一份數字餵給<b>提示詞</b>與 <b>schema</b>。存檔後舊產物過期——重跑「分析全部素材」生效。</div>
+    <div class="gtabs"><button class="on" data-gt="soft">軟限制</button><button data-gt="hard">硬限制</button></div>
+    <div class="sub2" id="gtDesc">編輯目標：寫進提示詞的傾向——模型往這裡寫，<b>超過不會被擋</b>。</div>
+    <div class="setgrid" data-grid="soft">${grid(GEN_SOFT)}</div>
+    <div class="setgrid" data-grid="hard" style="display:none">${grid(GEN_HARD)}</div>
+    <div class="setbtns"><button class="pri" id="genSave">儲存生成參數</button>
+      <button id="genReset">回復預設</button><span class="st" id="genSt"></span></div>`;
+  const GT_DESC = {
+    soft: "編輯目標：寫進提示詞的傾向——模型往這裡寫，超過不會被擋。",
+    hard: "物理上限：schema 執法——模型產出超過會被整份退回重做；人存檔超過會被擋。",
+  };
+  $$(".gtabs button", gen).forEach(b => b.onclick = () => {
+    $$(".gtabs button", gen).forEach(x => x.className = x === b ? "on" : "");
+    ["soft", "hard"].forEach(k => gen.querySelector(`[data-grid=${k}]`).style.display = b.dataset.gt === k ? "" : "none");
+    $("#gtDesc", gen).textContent = GT_DESC[b.dataset.gt];
+  });
+  $("#genReset", gen).onclick = () => {
+    GEN_FIELDS.forEach(([k]) => { gen.querySelector(`[data-k=${k}]`).value = String(d.defaults.generation[k]); });
+  };
+  $("#genSave", gen).onclick = async () => {
+    const out = {};
+    GEN_FIELDS.forEach(([k]) => {
+      const el = gen.querySelector(`[data-k=${k}]`);
+      out[k] = el.type === "number" ? parseInt(el.value, 10) : el.value;
+    });
+    const caps = ["posts_max","cards_max","point_body_max","steps_max","steps_step_max","contrast_side_max","quote_max"];
+    const lowered = caps.filter(k => out[k] < g[k]);
+    try {
+      await api("/api/settings", { settings: { generation: out } });
+      Object.assign(g, out);
+      $("#genSt", gen).textContent = "已儲存 ✓";
+      if (lowered.length) toast("上限調小了（" + lowered.join("、") + "）。\n既有的產出可能超過新上限而不再合約——重跑分析前，讀檔可能會報錯。", 8000);
+    } catch (e) { toast(e.message, 8000); }
+  };
+  // 進階摺疊區（gen 與其他卡片都收進去；預設收合——保險絲不該擋路）
+  const adv = document.createElement("details"); adv.className = "advwrap";
+  adv.innerHTML = `<summary>全部設定（進階）——平常不用動，出事再來</summary>`;
+  adv.appendChild(gen);
+
+  // ---- AI 提示詞：清單在左，點了在右邊展開 ----
+  const pr = document.createElement("div"); pr.className = "setcard";
+  pr.innerHTML = `<h3>AI 提示詞</h3>
+    <div class="sub2">點一份 → 在右邊展開（預設 Markdown 預覽，可切「編輯」）。
+    <code>{大括號}</code> 是變數——內容變數由程式填、參數變數來自生成參數，別刪。</div>`;
+  const PP = { name: null, mode: "view", cache: { ...d.prompts } };
+  for (const name of Object.keys(PROMPT_NAMES)) {
+    const row = document.createElement("button"); row.className = "prow"; row.dataset.pn = name;
+    row.innerHTML = `${PROMPT_NAMES[name]}<span class="tiny">prompts/${name}.md</span><span style="margin-left:auto">›</span>`;
+    row.onclick = () => { PP.name = PP.name === name ? null : name; drawPane(); };
+    pr.appendChild(row);
+  }
+  left.appendChild(pr);
+
+  // ---- 文案結構／版面字級／進階執行（通用小卡） ----
+  const EXTRA_CARDS = [
+    ["caption", "文案結構", "IG／Threads 文案的編輯規格。平台硬上限（2200／500／折疊線 125）是平台定的，刻意不開放。", [
+      ["body_paras_min", "正文最少幾段", "少於這個數＝黏成一坨，會退回重寫"],
+      ["body_paras_max", "正文最多幾段", "多於這個數＝太碎，會退回重寫"],
+      ["para_target",    "每段・目標字數", "寫進提示詞的傾向"],
+      ["para_max",       "每段・硬上限", "超過＝那不是段落是一坨，退回重寫"],
+      ["rewrite_rounds", "重寫輪數", "文案不合格時叫模型重寫幾輪；改不動就放行＋印警告（最後一關本來就是人）"],
+    ]],
+    ["render", "版面字級", "⚠ 這些數字是拿真版面量出來的，改了直接影響拆卡行為與出圖品質——動之前想清楚。", [
+      ["comfort_fs", "舒適線（px）", "字級低於它就拆卡——「塞得下」和「讀得下去」是兩件事"],
+      ["min_fs",     "最小字級（px）", "低於它拒絕出圖：那不叫圖卡，叫掃描件"],
+      ["max_fs",     "最大字級（px）", "字級天花板，內容少的卡不會放大超過它"],
+      ["max_splits", "一張卡最多拆幾張", "拆更多通常代表內容本身太長，該回頭改文案"],
+    ]],
+    ["advanced", "進階執行", "動之前先想清楚為什麼。嚴格模式＝主張對不回原文就整批擋下（預設只標給人看）。", [
+      ["strict_grounding", "嚴格模式", "true＝對不回原文就擋；false＝只標不擋，判斷交給人"],
+      ["chunk_threshold",  "單次分析字數上限", "文章超過這個字數就拒收（實測 2 萬字塞得下）"],
+      ["max_output_tokens","模型輸出 token 上限", "太小會被截斷成半截 JSON"],
+      ["json_retries",     "爛 JSON 重試次數", "模型吐爛 JSON 是隨機事件，重跑通常就好"],
+      ["repair_rounds",    "schema 修復輪數", "不合約時把錯誤餵回去請模型修的輪數"],
+    ]],
+  ];
+  for (const [sec, title, subtitle, fields] of EXTRA_CARDS) {
+    const secData = d.settings[sec];
+    const card = document.createElement("div"); card.className = "setcard";
+    card.innerHTML = `<h3>${title}</h3><div class="sub2">${subtitle}</div>
+      <div class="setgrid">` + fields.map(([k, label, desc]) => {
+        const v = secData[k];
+        const input = typeof v === "boolean"
+          ? `<select data-k="${k}"><option value="false">false（關）</option><option value="true">true（開）</option></select>`
+          : `<input data-k="${k}" type="number" value="${esc(String(v))}">`;
+        return `<div class="sf"><label>${label}</label>${input}<div class="d">${desc}</div></div>`;
+      }).join("") + `</div>
+      <div class="setbtns"><button class="pri" data-xsave>儲存</button>
+        <button data-xreset>回復預設</button><span class="st" data-xst></span></div>`;
+    fields.forEach(([k]) => {
+      if (typeof secData[k] === "boolean") card.querySelector(`[data-k=${k}]`).value = String(secData[k]);
+    });
+    card.querySelector("[data-xreset]").onclick = () => {
+      fields.forEach(([k]) => { card.querySelector(`[data-k=${k}]`).value = String(d.defaults[sec][k]); });
+    };
+    card.querySelector("[data-xsave]").onclick = async () => {
+      const out = {};
+      fields.forEach(([k]) => {
+        const el = card.querySelector(`[data-k=${k}]`);
+        out[k] = el.tagName === "SELECT" ? el.value === "true" : parseInt(el.value, 10);
+      });
+      try {
+        await api("/api/settings", { settings: { [sec]: out } });
+        Object.assign(secData, out);
+        card.querySelector("[data-xst]").textContent = "已儲存 ✓";
+        if (sec === "render") toast("字級參數改了——編輯台的即時預覽重新整理後生效；出圖時直接生效。", 6000);
+      } catch (e) { toast(e.message, 8000); }
+    };
+    adv.appendChild(card);
+  }
+
+  // ---- 模型與 API ----
+  const lm = document.createElement("div"); lm.className = "setcard";
+  const keyBadge = ok => ok ? `<span class="keyok">已設定 ✓</span>` : `<span class="keyno">尚未設定</span>`;
+  lm.innerHTML = `<h3>模型與 API</h3>
+    <div class="sub2">改了立即生效。除錯時環境變數仍可蓋過（環境變數 &gt; 設定 &gt; 預設）。
+    API key 只寫進 <code>.env</code>，這個畫面永遠不顯示已存的 key。</div>
+    <div class="setgrid">
+      <div class="sf"><label>供應商</label>
+        <select data-k="provider"><option value="gemini">gemini</option><option value="anthropic">anthropic</option></select>
+        <div class="d">跑分析與文案用哪家模型</div></div>
+      <div class="sf"><label>溫度</label><input data-k="temperature" type="number" step="0.1" min="0" max="2" value="${esc(String(l.temperature))}">
+        <div class="d">0＝穩定照規矩；結構化抽取建議 0.4 以下</div></div>
+      <div class="sf"><label>Gemini 模型</label><input data-k="gemini_model" type="text" value="${esc(l.gemini_model)}">
+        <div class="d">「測試Gemini.bat」可列出這把 key 能用的清單</div></div>
+      <div class="sf"><label>Anthropic 模型</label><input data-k="anthropic_model" type="text" value="${esc(l.anthropic_model)}">
+        <div class="d">例：claude-sonnet-5</div></div>
+      <div class="sf"><label>Gemini API key ${keyBadge(d.keys.gemini)}</label>
+        <input data-k="gemini_key" type="password" placeholder="${d.keys.gemini ? "留空＝不變" : "貼上 key"}">
+        <div class="d">寫進 .env 的 GEMINI_API_KEY</div></div>
+      <div class="sf"><label>Anthropic API key ${keyBadge(d.keys.anthropic)}</label>
+        <input data-k="anthropic_key" type="password" placeholder="${d.keys.anthropic ? "留空＝不變" : "貼上 key"}">
+        <div class="d">寫進 .env 的 ANTHROPIC_API_KEY</div></div>
+    </div>
+    <div class="setbtns"><button class="pri" id="llmSave">儲存模型設定</button><span class="st" id="llmSt"></span></div>`;
+  lm.querySelector(`[data-k=provider]`).value = l.provider;
+  $("#llmSave", lm).onclick = async () => {
+    try {
+      await api("/api/settings", { settings: { llm: {
+        provider: lm.querySelector(`[data-k=provider]`).value,
+        gemini_model: lm.querySelector(`[data-k=gemini_model]`).value.trim(),
+        anthropic_model: lm.querySelector(`[data-k=anthropic_model]`).value.trim(),
+        temperature: parseFloat(lm.querySelector(`[data-k=temperature]`).value),
+      }}});
+      const gk = lm.querySelector(`[data-k=gemini_key]`).value;
+      const ak = lm.querySelector(`[data-k=anthropic_key]`).value;
+      if (gk || ak) {
+        await api("/api/llm-keys", { gemini_key: gk, anthropic_key: ak });
+        lm.querySelector(`[data-k=gemini_key]`).value = "";
+        lm.querySelector(`[data-k=anthropic_key]`).value = "";
+      }
+      $("#llmSt", lm).textContent = "已儲存 ✓";
+    } catch (e) { toast(e.message, 8000); }
+  };
+  left.appendChild(lm);
+  left.appendChild(adv);
+
+  const back = document.createElement("div"); back.className = "setbtns";
+  back.innerHTML = `<button id="setBack">← 回編輯台</button>`;
+  back.querySelector("button").onclick = () => { S.view = "edit"; renderAll(); };
+  left.appendChild(back);
+
+  // ---- 右側：提示詞展開面板（sticky，佔右半屏） ----
+  function drawPane() {
+    $$(".prow", pr).forEach(r => r.className = "prow" + (r.dataset.pn === PP.name ? " on" : ""));
+    cols.className = "setcols" + (PP.name ? "" : " solo");   // 沒展開＝參數區吃滿寬
+    if (!PP.name) { right.innerHTML = ""; return; }
+    right.innerHTML = `<div class="setcard">
+      <div class="pane-head"><h3>${PROMPT_NAMES[PP.name]}</h3><span class="tiny">prompts/${PP.name}.md</span>
+        <span style="flex:1"></span>
+        <button id="ppView" class="${PP.mode === "view" ? "on" : ""}">預覽</button>
+        <button id="ppEdit" class="${PP.mode === "edit" ? "on" : ""}">編輯</button>
+        <button class="pri" id="ppSave">儲存</button><button id="ppRestore">回復預設</button>
+        <button class="ghost" id="ppClose" title="收合">✕</button></div>
+      <div class="pane-body"></div>
+      <div class="tiny" id="ppSt" style="margin-top:8px"></div></div>`;
+    const body = right.querySelector(".pane-body");
+    if (PP.mode === "view") {
+      const dv = document.createElement("div"); dv.className = "mdprev";
+      dv.innerHTML = mdRender(PP.cache[PP.name]);
+      body.appendChild(dv);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = PP.cache[PP.name];
+      ta.addEventListener("input", () => PP.cache[PP.name] = ta.value);
+      body.appendChild(ta);
+    }
+    $("#ppClose", right).onclick = () => { PP.name = null; drawPane(); };
+    $("#ppView", right).onclick = () => { PP.mode = "view"; drawPane(); };
+    $("#ppEdit", right).onclick = () => { PP.mode = "edit"; drawPane(); };
+    $("#ppSave", right).onclick = async () => {
+      try {
+        await api("/api/prompt", { name: PP.name, content: PP.cache[PP.name] });
+        $("#ppSt", right).textContent = "已儲存 ✓（舊產物已過期，重跑分析生效）";
+      } catch (e) { toast(e.message, 7000); }
+    };
+    $("#ppRestore", right).onclick = async () => {
+      if (!confirm("把這份提示詞整份換回出廠版？你的修改會不見。")) return;
+      try {
+        const r = await api("/api/prompt", { name: PP.name, restore: true });
+        PP.cache[PP.name] = r.content; drawPane();
+        $("#ppSt", right).textContent = "已回復預設 ✓";
+      } catch (e) { toast(e.message, 7000); }
+    };
+  }
+  PP.name = null;   // 預設收合——參數區吃滿版寬；點左邊的提示詞才展開右欄
+  drawPane();
+}
+
+$("#settingsBtn").onclick = () => {
+  S.view = S.view === "settings" ? "edit" : "settings";
+  renderAll();
+};
+
+/* =====================================================================
+   佈局：側欄、tabs、視圖切換
+===================================================================== */
+function renderSide() {
+  const box = $("#arts"); box.innerHTML = "";
+  S.articles.forEach(a => {
+    const el = document.createElement("div");
+    el.className = "art" + (a.slug === S.slug ? " on" : "");
+    el.innerHTML = `<div class="t">${esc(a.title)}</div>
+      <div class="m">${a.n_posts > 1 ? a.n_posts + " 則・" : ""}${a.captions.every(Boolean) ? "文案✓" : "草稿"}
+      <button class="ghost artdel" title="刪除這篇素材的所有產物">🗑</button></div>`;
+    el.onclick = () => openArticle(a.slug);
+    el.querySelector(".artdel").onclick = async e => {
+      e.stopPropagation();
+      if (!confirm(`刪掉「${a.title}」？\n會移除它的知識卡、圖卡與文案（out/${a.slug}/ 整個資料夾）。\n來源筆記（Clippings 的 md）不會動。`)) return;
+      try {
+        await api("/api/delete-article", { slug: a.slug });
+        const st = await api("/api/state");
+        S.articles = st.articles;
+        if (S.slug === a.slug) {
+          S.slug = null; S.hl = null; S.posts = {}; S.cap = null;
+          $("#tabs").innerHTML = "";
+          $("#stage").innerHTML = `<div id="empty">← 左邊挑一篇素材，或把 .md 拖進來</div>`;
+          if (S.articles.length) openArticle(S.articles[0].slug);
+        }
+        renderSide();
+        toast("刪掉了（來源 md 還在，重跑分析隨時能再生）");
+      } catch (err) { toast(err.message, 7000); }
+    };
+    box.appendChild(el);
+  });
+}
+function renderTabs() {
+  const t = $("#tabs"); t.innerHTML = "";
+  if (S.view === "settings") return;   // 設定頁：這排與它無關
+  if (!S.hl) return;
+
+  // 圖卡／文案分頁（Human 2026-07-15：文案不再沉底，取代「第N則」的位置）
+  if (S.view === "edit") {
+    [["cards", "圖卡"], ["caption", "文案"]].forEach(([k, label]) => {
+      const b = document.createElement("div");
+      b.className = "tab" + (S.sub === k ? " on" : "");
+      b.textContent = label;
+      b.onclick = () => { S.sub = k; renderAll(); };
+      t.appendChild(b);
+    });
+  }
+
+  // 一素材一則是新常態——只有多則的舊資料才顯示則切換與整則刪除
+  if (S.hl.posts.length > 1) {
+    const sep = document.createElement("span"); sep.style.cssText = "width:14px"; t.appendChild(sep);
+    S.hl.posts.forEach((p, i) => {
+      const b = document.createElement("div");
+      b.className = "tab" + (i + 1 === S.pi ? " on" : "");
+      b.textContent = `第 ${i + 1} 則`;
+      b.title = p.angle;
+      b.onclick = () => { S.pi = i + 1; S.cap = null; renderAll(); };
+      t.appendChild(b);
+    });
+    const del = document.createElement("button"); del.className = "ghost"; del.textContent = "🗑 刪除這則";
+    del.onclick = async () => {
+      const cur = post();
+      if (!confirm(`刪掉第 ${S.pi} 則「${cur.angle}」？\n這則的卡片與文案設定都會移除。`)) return;
+      const deletedAt = S.pi;
+      S.hl.posts.splice(S.pi - 1, 1);
+      S.posts = {}; S.cap = null;
+      S.pi = Math.min(S.pi, S.hl.posts.length);
+      await saveNow();
+      try { await api("/api/delete-post", { slug: S.slug, from_index: deletedAt }); } catch (e) { toast(e.message, 6000); }
+      try { S.posts = (await api("/api/article?slug=" + encodeURIComponent(S.slug))).posts; } catch (e) { /* noop */ }
+      renderAll();
+    };
+    t.appendChild(del);
+  }
+
+  const re = document.createElement("button"); re.className = "ghost"; re.textContent = "🤖 重新起草…";
+  re.style.marginLeft = "10px";
+  re.onclick = () => openSuggest("redraft");
+  t.appendChild(re);
+
+  // 右端：視圖切換＋發布（發布收成一顆鍵，按了再展開選項）
+  const sel = document.createElement("div"); sel.id = "viewSel";
+  [["edit","編輯"],["ig","IG 模擬"],["th","Threads 模擬"]].forEach(([v, label]) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.className = S.view === v ? "on" : "";
+    b.onclick = () => { S.view = v; renderAll(); };
+    sel.appendChild(b);
+  });
+  const pub = document.createElement("button"); pub.className = "pri"; pub.textContent = "發布";
+  pub.onclick = openPublishModal;
+  sel.appendChild(pub);
+  t.appendChild(sel);
+}
+
+function renderAll() {
+  renderSide(); renderTabs();
+  if (S.view === "settings") { renderSettings(); return; }
+  if (!S.hl) return;
+  if (S.view === "edit") renderEdit();
+  else if (S.view === "ig") renderIG();
+  else renderThreads();
+}
+async function openArticle(slug) {
+  try {
+    const d = await api("/api/article?slug=" + encodeURIComponent(slug));
+    S.slug = slug; S.hl = d.highlights; S.posts = d.posts; S.pi = 1; S.cap = null;
+    renderAll();
+  } catch (e) { toast(e.message, 5000); }
+}
+
+/* =====================================================================
+   topbar：主題／比例／handle／出圖
+===================================================================== */
+function syncTop() {
+  $("#ta").className = S.cfg.theme === "a" ? "on" : "";
+  $("#tb").className = S.cfg.theme === "b" ? "on" : "";
+  $("#r1").className = S.cfg.ratio === "1x1" ? "on" : "";
+  $("#r2").className = S.cfg.ratio === "4x5" ? "on" : "";
+  $("#handle").value = S.cfg.handle;
+}
+async function setCfg(patch) {
+  Object.assign(S.cfg, patch);
+  syncTop();
+  if (S.hl) renderAll();     // 出圖是純函式：換主題／比例只是重畫，不可能弄丟東西
+  try { await api("/api/config", S.cfg); } catch (e) { /* 設定存不進去不擋人 */ }
+}
+$("#ta").onclick = () => setCfg({ theme: "a" });
+$("#tb").onclick = () => setCfg({ theme: "b" });
+$("#r1").onclick = () => setCfg({ ratio: "1x1" });
+$("#r2").onclick = () => setCfg({ ratio: "4x5" });
+let hT = null;
+$("#handle").addEventListener("input", e => { clearTimeout(hT); hT = setTimeout(() => setCfg({ handle: e.target.value || "@your_handle" }), 700); });
+
+/* =====================================================================
+   背景工作顯示
+===================================================================== */
+function watchJob(id, label, onDone, onError) {
+  const el = $("#busy"); el.style.display = "block";
+  const tick = async () => {
+    let j;
+    try { j = await api("/api/job?id=" + id); } catch (e) { j = { status: "error", error: e.message }; }
+    if (j.status === "running") {
+      el.innerHTML = `<span class="spin"></span>${esc(label)}：${esc(j.stage || "處理中")}`;
+      setTimeout(tick, 1200);
+    } else if (j.status === "done") {
+      el.style.display = "none"; onDone && onDone(j);
+    } else {
+      el.style.display = "none";
+      toast(`${label} 失敗：\n${j.error || "未知錯誤"}`, 9000);
+      onError && onError(j);
+    }
+  };
+  tick();
+}
+
+/* =====================================================================
+   拖放素材（.md）→ 讀取 → 抽卡
+===================================================================== */
+["dragenter","dragover"].forEach(ev => document.addEventListener(ev, e => {
+  e.preventDefault(); $("#dropOvl").classList.add("show");
+}));
+["dragleave","drop"].forEach(ev => document.addEventListener(ev, e => {
+  e.preventDefault();
+  if (ev === "dragleave" && e.relatedTarget) return;
+  $("#dropOvl").classList.remove("show");
+}));
+document.addEventListener("drop", async e => {
+  const f = Array.from(e.dataTransfer.files).find(x => x.name.endsWith(".md"));
+  if (!f) return toast("這裡吃 .md（markdown 素材）");
+  const content = await f.text();
+  openModal(`
+    <h3>處理素材：${esc(f.name)}</h3>
+    <div class="p">拖進來就一路跑到底：讀取 → 抽知識卡 → 出圖 → 文案（約一兩分鐘）。跑完每一個字都可以直接改。</div>
+    <div class="row" style="margin-top:12px"><div class="lab"><b>要產出幾則、各講什麼</b>
+      <span class="tiny">一格＝一則。留白＝那一則的題目由模型判斷。例：「入門介紹」「實戰步驟」</span></div>
+      <div id="briefRows"></div>
+      <div class="setbtns" style="margin-top:8px"><button id="briefAdd">＋ 加一則</button></div></div>
+    <div class="btns"><button onclick="closeModal()">取消</button><button class="pri" id="ingGo">開始</button></div>`);
+  const rowsBox = $("#briefRows");
+  const addRow = val => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;margin-top:6px;align-items:center";
+    row.innerHTML = `<span class="tiny" style="flex:none;width:44px">第 ${rowsBox.children.length + 1} 則</span>
+      <input type="text" class="briefIn" placeholder="題目與走向（留白＝模型判斷）">
+      <button class="ghost briefDel" title="移除這則">✕</button>`;
+    row.querySelector("input").value = val || "";
+    row.querySelector(".briefDel").onclick = () => {
+      if (rowsBox.children.length <= 1) return;   // 至少一則
+      row.remove();
+      Array.from(rowsBox.children).forEach((r, i) => r.querySelector("span").textContent = `第 ${i + 1} 則`);
+    };
+    rowsBox.appendChild(row);
+  };
+  addRow();                                        // 預設一則
+  $("#briefAdd").onclick = () => {
+    if (rowsBox.children.length >= 10) return toast("最多 10 則（失控上限）");
+    addRow();
+  };
+  $("#ingGo").onclick = async () => {
+    const briefs = Array.from(rowsBox.querySelectorAll(".briefIn")).map(i => i.value.trim());
+    closeModal();
+    try {
+      const { job } = await api("/api/ingest", { filename: f.name, content, briefs });
+      watchJob(job, "處理素材", async j => {
+        const st = await api("/api/state");
+        S.articles = st.articles; renderSide();
+        if (j.slug) openArticle(j.slug);
+        toast("素材處理完成：卡片、圖、文案都備好了");
+      }, async () => {   // 失敗也刷新——卡片可能已抽好，只是出圖或文案沒成
+        const st = await api("/api/state").catch(() => null);
+        if (st) { S.articles = st.articles; renderSide(); }
+      });
+    } catch (err) { toast(err.message, 7000); }
+  };
+});
+
+/* =====================================================================
+   modal 通用
+===================================================================== */
+function openModal(html) {
+  const o = $("#ovl"); o.innerHTML = `<div class="modal">${html}</div>`; o.classList.add("show");
+  o.onclick = e => { if (e.target === o) closeModal(); };
+}
+function closeModal() { const o = $("#ovl"); o.classList.remove("show"); o.innerHTML = ""; }
+window.closeModal = closeModal;
+
+/* =====================================================================
+   啟動
+===================================================================== */
+(async function init() {
+  try {
+    const st = await api("/api/state");
+    S.articles = st.articles;
+    Object.assign(S.cfg, st.config || {});
+    syncTop(); renderSide();
+    if (S.articles.length) openArticle(S.articles[0].slug);
+  } catch (e) { toast("讀不到狀態：" + e.message, 8000); }
+})();
+</script>
+</body>
+</html>

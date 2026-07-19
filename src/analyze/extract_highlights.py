@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .. import settings
 from ..errors import ErrorCode, PipelineError
 from ..llm import LLMFn, current_model, get_llm
 from ..paths import PROMPT_DIR, article_path, highlights_path, is_stale
@@ -28,30 +29,86 @@ from ..schema import read_json, validate, write_json
 from . import locale
 from .grounding import Finding, check, iter_claims, review
 
-# 超過這個長度才需要分段。20k 字的逐字稿一次塞得下，別為了不存在的問題蓋一座 map-reduce。
-CHUNK_THRESHOLD = 60_000
-
-# 預設不擋。人要機器擋的話設 STRICT_GROUNDING=1
-STRICT = os.environ.get("STRICT_GROUNDING", "") not in ("", "0", "false")
-
-# 模型吐出爛 JSON 是隨機的（漏跳脫一個引號就整份爛掉）。重試通常就好了。
-MAX_JSON_RETRIES = 2
-
-# schema 不合（某個欄位超字數、漏了 evidence）不必整批重想——
-# 把錯誤原封不動餵回去，叫它改那幾個地方就好。這比重跑便宜也比重跑準。
-MAX_REPAIR_ROUNDS = 2
+# 這幾個執行參數住在後台設定的「進階」區（[[編輯台後台設定]]）；
+# STRICT_GROUNDING 環境變數仍可蓋過設定（除錯的手動排檔）。
+def _chunk_threshold() -> int:
+    """超過這個長度才需要分段。實測最長素材 2 萬字，一次塞得下。"""
+    return int(settings.adv("chunk_threshold"))
 
 
-def build_prompt(article: dict[str, Any]) -> str:
-    """把 prompt 範本與文章組起來。段落帶著 [index]——那是 evidence 的定錨點。"""
+def _strict() -> bool:
+    """預設不擋（只標給人看）。要機器擋：設定頁開嚴格模式，或 STRICT_GROUNDING=1。"""
+    env = os.environ.get("STRICT_GROUNDING", "")
+    if env not in ("", "0", "false"):
+        return True
+    return bool(settings.adv("strict_grounding"))
+
+
+def _json_retries() -> int:
+    """模型吐出爛 JSON 是隨機的（漏跳脫一個引號就整份爛掉）。重試通常就好了。"""
+    return int(settings.adv("json_retries"))
+
+
+def _repair_rounds() -> int:
+    """schema 不合不必整批重想——把錯誤餵回去請它修那幾個地方。"""
+    return int(settings.adv("repair_rounds"))
+
+
+def build_prompt(
+    article: dict[str, Any],
+    brief: str | None = None,
+    briefs: list[str] | None = None,
+) -> str:
+    """把 prompt 範本與文章組起來。段落帶著 [index]——那是 evidence 的定錨點。
+
+    `briefs`＝**每則一格的題目與走向**（[[編輯台改版第二輪]]：則數由介面明定，
+    不再讓模型自己決定切幾則）。清單長度＝要產出幾則；某格留白＝那一則的論點由模型判斷。
+    沒給 briefs（批次腳本）→ 則數用設定的 posts_max。
+    `brief`（整段自由文字）保留相容：附加為全域指示。
+    """
     template = (PROMPT_DIR / "highlights.md").read_text(encoding="utf-8")
     body = "\n\n".join(f"[{p['index']}] {p['text']}" for p in article["paragraphs"])
-    return (
+    prompt = (
         template.replace("{title}", article["source"]["title"])
         .replace("{author}", article["source"].get("author") or "（沒有標明作者）")
         .replace("{language}", article["language"])
         .replace("{paragraphs}", body)
     )
+    # 生成參數來自後台設定（[[編輯台後台設定]]）：prompt 檔裡只有 {變數}，
+    # 數字的唯一事實來源是 settings.json——schema 的物理上限也讀同一份，兩邊不會走散。
+    gen = settings.load()["generation"]
+    # 則數是**明定的**，不是模型判斷的（[[編輯台改版第二輪]]）：
+    # 拖素材時每則一格 → len(briefs)；批次腳本沒給 → 設定的 posts_max。
+    n = max(1, len(briefs)) if briefs is not None else int(gen["posts_max"])
+    if n <= 1:
+        posts_rule = (
+            "**一篇素材固定產出 1 則貼文——不多不少。** 先讀完全文，挑出「讀者最能帶走」的單一論點來做；\n"
+            "其餘內容捨棄——寧可少而完整，不要多而零碎。"
+        )
+        overflow_rule = "內容多到放不下 → **忍痛割愛**：留最重要的，砍掉其餘。一篇只出一則。"
+    else:
+        posts_rule = (
+            f"**一篇素材固定產出 {n} 則貼文——不多不少。** 每則各自成立：\n"
+            "一則講一個論點，講到讀者能照做；各則之間不重複。"
+        )
+        overflow_rule = f"內容多到放不下 → **忍痛割愛**：這 {n} 則裝不下的就捨棄，不要加開。"
+    if briefs and any(b.strip() for b in briefs):
+        specs = []
+        for i, b in enumerate(briefs, 1):
+            spec = b.strip() or "（未指定——由你判斷這一則的最佳論點）"
+            specs.append(f"- 第 {i} 則：{spec}")
+        posts_rule += "\n\n人指定的各則題目與走向（**優先於你自己的判斷**）：\n" + "\n".join(specs)
+    prompt = prompt.replace("{posts_rule}", posts_rule).replace("{overflow_rule}", overflow_rule)
+    for key, val in gen.items():
+        prompt = prompt.replace("{" + key + "}", str(val))
+    if brief and brief.strip():
+        prompt += (
+            "\n\n---\n\n# 人指定的題目與走向（優先於你自己的判斷）\n\n"
+            f"{brief.strip()}\n\n"
+            "切幾則、每則講什麼，**照上面的指定來**；指定沒講到的部分你才自己判斷。\n"
+            "「不能超出原文說過的」這條紅線不因此放鬆。"
+        )
+    return prompt
 
 
 def parse_response(text: str) -> dict[str, Any]:
@@ -86,13 +143,14 @@ def _dump_raw(slug: str, text: str) -> None:
 
 def _ask_for_json(llm: LLMFn, prompt: str, slug: str) -> dict[str, Any]:
     """問模型、拿 JSON。爛 JSON 就重跑（漏跳脫一個引號是隨機事件）。"""
-    for attempt in range(MAX_JSON_RETRIES + 1):
+    retries = _json_retries()
+    for attempt in range(retries + 1):
         response = llm(prompt)
         _dump_raw(slug, response)  # 出事時看得到模型到底吐了什麼
         try:
             return parse_response(response)
         except PipelineError as e:
-            if attempt == MAX_JSON_RETRIES:
+            if attempt == retries:
                 raise
             print(f"    模型吐出爛 JSON（{e.message[:48]}）→ 重跑第 {attempt + 2} 次")
     raise AssertionError("unreachable")  # pragma: no cover
@@ -116,22 +174,29 @@ def _repair_prompt(original: str, bad: dict[str, Any], errors: str) -> str:
     )
 
 
-def analyze(article: dict[str, Any], llm: LLMFn | None = None) -> dict[str, Any]:
+def analyze(
+    article: dict[str, Any],
+    llm: LLMFn | None = None,
+    brief: str | None = None,
+    briefs: list[str] | None = None,
+) -> dict[str, Any]:
     """跑分析，回傳 highlights 內容（不落地）。"""
     llm = llm or get_llm()
 
     total = sum(len(p["text"]) for p in article["paragraphs"])
-    if total > CHUNK_THRESHOLD:
+    if total > _chunk_threshold():
         raise PipelineError(
             ErrorCode.ARTICLE_TOO_SHORT,  # 借用；長度問題
-            f"文章 {total} 字，超過單次上限 {CHUNK_THRESHOLD}",
+            f"文章 {total} 字，超過單次上限 {_chunk_threshold()}",
             hint="目前沒有分段實作——實測最長素材 20,749 字，一次塞得下。真的遇到再說",
         )
 
-    prompt = build_prompt(article)
+    prompt = build_prompt(article, brief, briefs)
     slug = article["source"]["slug"]
+    expected_n = max(1, len(briefs)) if briefs is not None else None
 
-    for repair in range(MAX_REPAIR_ROUNDS + 1):
+    rounds = _repair_rounds()
+    for repair in range(rounds + 1):
         raw = _ask_for_json(llm, prompt, slug)
         data = {
             "schema_version": "3.1",
@@ -150,11 +215,18 @@ def analyze(article: dict[str, Any], llm: LLMFn | None = None) -> dict[str, Any]
 
         try:
             validate("highlights", data)
+            # 則數是明定的：介面每則一格 → 模型必須剛好給 N 則，多的少的都退回去修
+            if expected_n is not None and len(data["posts"]) != expected_n:
+                raise PipelineError(
+                    ErrorCode.SCHEMA_INVALID,
+                    f"posts: 要求固定 {expected_n} 則，你給了 {len(data['posts'])} 則"
+                    f" → 產出剛好 {expected_n} 則",
+                )
         except PipelineError as e:
-            if repair == MAX_REPAIR_ROUNDS:
+            if repair == rounds:
                 raise
             print(f"    產出不符 schema → 把錯誤餵回去請它修（第 {repair + 1} 輪）")
-            prompt = _repair_prompt(build_prompt(article), raw, e.message)
+            prompt = _repair_prompt(build_prompt(article, brief, briefs), raw, e.message)
             continue
 
         # 圖卡上的中文必須是台灣的中文。**prompt 叮嚀不夠**——素材是簡體時，
@@ -178,23 +250,43 @@ def analyze(article: dict[str, Any], llm: LLMFn | None = None) -> dict[str, Any]
         # （「程序正義」vs「這個程序有 bug」）。標在審稿表上給人看就好——
         # 機器不替語意做決定。見 scripts/analyze_all.py。
 
-        check(data, article, strict=STRICT)  # 預設只對照、不攔截
+        check(data, article, strict=_strict())  # 預設只對照、不攔截
         return data
 
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def extract(slug: str, force: bool = False, llm: LLMFn | None = None) -> Path:
+def extract(
+    slug: str,
+    force: bool = False,
+    llm: LLMFn | None = None,
+    brief: str | None = None,
+    briefs: list[str] | None = None,
+) -> Path:
     path = highlights_path(slug)
 
+    # **LLM 永遠不覆蓋人的編輯**（[[發布前預覽介面]] 的紅線，在資料層執行）。
+    # 人在編輯台改過的 highlights 標著 `human_edited`——那份檔案已經是「人的最終版」，
+    # 重跑分析不准動它，**連 --force 也不准**：force 的意思是「產物過期了重做」，
+    # 不是「把人改的字丟掉」。真要整份重來，人自己刪檔——刪除是只有人做得出的明確動作。
+    if path.exists():
+        try:
+            edited = json.loads(path.read_text(encoding="utf-8")).get("human_edited", False)
+        except (OSError, json.JSONDecodeError):
+            edited = False
+        if edited:
+            print(f"  ⚠ {path.name} 有人的編輯，分析階段不覆蓋（要整份重來請先刪掉它）")
+            return path
+
     # **跳過的條件是「產物比所有輸入都新」，不是「檔案存在」。**
-    # 輸入 = article.json + prompts/ + 這個模組本身（prompt 改了、抽取邏輯改了，知識卡就過期了）。
-    inputs = (article_path(slug), PROMPT_DIR, Path(__file__).parent)
+    # 輸入 = article.json + prompts/ + 設定檔 + 這個模組本身
+    # （prompt 改了、參數改了、抽取邏輯改了——知識卡都算過期）。
+    inputs = (article_path(slug), PROMPT_DIR, settings.path(), Path(__file__).parent)
     if not force and not is_stale(path, *inputs):
         return path
 
     article = read_json("article", article_path(slug))
-    return write_json("highlights", path, analyze(article, llm))
+    return write_json("highlights", path, analyze(article, llm, brief=brief, briefs=briefs))
 
 
 def review_slug(slug: str) -> tuple[list[Finding], dict[str, Any]]:

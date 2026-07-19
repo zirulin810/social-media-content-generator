@@ -110,12 +110,12 @@ def test_schema_errors_are_readable_by_a_human_and_a_model() -> None:
 
     data = copy.deepcopy(_example("highlights"))
     card = data["posts"][0]["cards"][0]
-    data["posts"][0]["cards"] = [copy.deepcopy(card) for _ in range(9)]
+    data["posts"][0]["cards"] = [copy.deepcopy(card) for _ in range(19)]  # 上限 18（v3.7）
 
     with pytest.raises(PipelineError) as e:
         validate("highlights", data)
 
     msg = e.value.message
-    assert "9 項" in msg and "6 項" in msg, f"訊息沒講清楚幾張、上限幾張：{msg}"
+    assert "19 項" in msg and "18 項" in msg, f"訊息沒講清楚幾張、上限幾張：{msg}"
     assert "para_index" not in msg, "訊息把整包資料 dump 出來了——那是給機器看的，不是給人看的"
     assert len(msg) < 600, f"訊息太長，沒人會讀（{len(msg)} 字）"

@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .. import settings
 from ..errors import ErrorCode, PipelineError
 from ..paths import (
     PROJECT_ROOT,
@@ -31,6 +32,8 @@ from .layout import plan_all
 
 RATIOS = {"1x1": (1080, 1080), "4x5": (1080, 1350)}
 
+PLATFORM_MEDIA_MAX = 20  # Threads 與 IG 的輪播上限（2024-08 從 10 放寬到 20）
+
 THEME = os.environ.get("CARD_THEME", "b")     # b = 深色螢光（Human 2026-07-14 選定）
 RATIO = os.environ.get("CARD_RATIO", "1x1")
 
@@ -41,7 +44,13 @@ RATIO = os.environ.get("CARD_RATIO", "1x1")
 #
 # 第一版我只有硬底線，結果 5 步的卡縮到 34px 剛好塞得下 → 不拆 → 一面文字牆。
 # 「塞得下」和「讀得下去」是兩件事。
-COMFORT_FS = int(os.environ.get("CARD_COMFORT_FS", "44"))
+COMFORT_FS = int(os.environ.get("CARD_COMFORT_FS", "44"))  # 出廠預設（腳本顯示用）
+
+
+def _comfort_fs() -> int:
+    """舒適線：環境變數 > 後台設定 > 44。量尺 fits() 每次都問，設定改了即時生效。"""
+    env = os.environ.get("CARD_COMFORT_FS")
+    return int(env) if env else int(settings.render("comfort_fs"))
 
 # 一則貼文的圖卡順序：封面 → 內容卡 → 結尾
 COVER_IDX, OUTRO_IDX = 1, 99
@@ -70,7 +79,7 @@ class Renderer:
         塞得下但字級掉到 34px = 文字牆。那種卡要拆，不是硬塞。
         """
         fit = self.measure(card)
-        return not fit["overflow"] and fit["fs"] >= COMFORT_FS
+        return not fit["overflow"] and fit["fs"] >= _comfort_fs()
 
     def shoot(self, card: dict[str, Any], path: Path) -> dict[str, Any]:
         """截圖前先稽核。**寧可不出圖，也不要出一張被切掉的圖。**
@@ -130,6 +139,12 @@ def render_post(
             "([t, r]) => { document.body.dataset.theme = t; document.body.dataset.ratio = r; }",
             [theme, ratio],
         )
+        # 字級邊界來自後台設定（card.js 讀 window.FS_OVERRIDES，沒有就用它自己的出廠值）
+        r_cfg = settings.load()["render"]
+        page.evaluate(
+            "cfg => { window.FS_OVERRIDES = cfg; }",
+            {"min": r_cfg["min_fs"], "max": r_cfg["max_fs"], "comfort": r_cfg["comfort_fs"]},
+        )
         # 字體要載完才能量，也才能截——否則量到的是 fallback 字體的寬度
         page.evaluate("document.fonts.ready")
 
@@ -139,7 +154,19 @@ def render_post(
                  "angle": highlights_post["angle"], "hook": highlights_post.get("hook"),
                  "stat": highlights_post.get("stat")}
         content = plan_all(highlights_post["cards"], r.fits)   # ← 這裡拆卡
-        deck = [cover] + content + [{"type": "outro"}]
+        # 結尾卡＝整則貼文唯一的出處，**預設一定有**。
+        # 只有人在編輯台明確宣告「這則是我的原創」（post.original，highlights schema v3.4）
+        # 才允許沒有它——宣告的摩擦力在編輯台那端，這裡只忠實執行資料層的狀態。
+        outro = [] if highlights_post.get("original") else [{"type": "outro"}]
+        deck = [cover] + content + outro
+        # Threads／IG 輪播上限 20 張（2024-08 起）。卡片上限 18 已經留了位子給封面與出處卡，
+        # 但**拆卡會讓張數膨脹**——超過平台上限的輪播根本發不出去，在這裡擋，不要出一組發不了的圖。
+        if len(deck) > PLATFORM_MEDIA_MAX:
+            raise PipelineError(
+                ErrorCode.RENDER_OVERFLOW,
+                f"這則拆卡後共 {len(deck)} 張圖，超過 Threads／IG 輪播上限 {PLATFORM_MEDIA_MAX} 張",
+                hint="減少卡片，或把太長的卡精簡（拆卡數＝內容長度的鏡子）",
+            )
 
         seq = 0
         for card in deck:
@@ -170,7 +197,7 @@ def render_post(
     return images
 
 
-def render(slug: str, ratio: str = RATIO, force: bool = False) -> list[Path]:
+def render(slug: str, ratio: str = RATIO, force: bool = False, theme: str = THEME) -> list[Path]:
     """讀 highlights.json，把每一則貼文都出圖。"""
     from ..paths import article_path, highlights_path
     from ..schema import read_json
@@ -198,7 +225,7 @@ def render(slug: str, ratio: str = RATIO, force: bool = False) -> list[Path]:
         # **程式碼也是輸入**——漏掉它，你會拿到「用舊邏輯生成、看起來很新」的產物。
         oldest = min(existing, key=lambda p: p.stat().st_mtime) if existing else None
         stale = oldest is None or is_stale(
-            oldest, highlights_path(slug), TEMPLATE_DIR, Path(__file__).parent
+            oldest, highlights_path(slug), TEMPLATE_DIR, settings.path(), Path(__file__).parent
         )
         if not stale and not force:
             out.extend(existing)
@@ -211,7 +238,7 @@ def render(slug: str, ratio: str = RATIO, force: bool = False) -> list[Path]:
 
         why = "" if not existing else "（圖比輸入舊，重出）"
         print(f"  第 {i} 則：{post['angle']} {why}")
-        imgs = render_post(post, ctx, slug, i, ratio=ratio)
+        imgs = render_post(post, ctx, slug, i, theme=theme, ratio=ratio)
         out.extend(d / Path(m["path"]).name for m in imgs)
     return out
 

@@ -12,20 +12,63 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from . import settings
 from .errors import ErrorCode, PipelineError
 from .paths import SCHEMA_DIR
 
 _KINDS = ("article", "highlights", "post")
 _cache: dict[str, Draft202012Validator] = {}
+_cache_stamp: float = -1.0
+
+# 後台設定可以動的物理上限（[[編輯台後台設定]]）。
+# **schema 檔案本身不改**——它記的是出廠值；這裡在載入時把數字換成設定值。
+# 路徑寫死在表裡：schema 結構改了而這張表沒跟上，測試會抓到（test_settings）。
+_OVERRIDES: dict[str, list[tuple[tuple[str, ...], str]]] = {
+    "highlights": [
+        # 「切幾則」是編輯規則（prompt 的 posts_rule 管），不是物理極限——schema 不覆寫 posts 上限，
+        # 舊的多則資料才不會因為新規則變不合約。
+        (("properties", "summary", "maxItems"), "summary_max_items"),
+        (("properties", "summary", "items", "maxLength"), "summary_item_max"),
+        (("$defs", "post", "properties", "cards", "maxItems"), "cards_max"),
+        (("$defs", "post", "properties", "angle", "maxLength"), "angle_max"),
+        (("$defs", "post", "properties", "hook", "maxLength"), "cover_hook_max"),
+        (("$defs", "post", "properties", "hashtags", "maxItems"), "hashtags_max"),
+        (("$defs", "pointCard", "properties", "title", "maxLength"), "title_max"),
+        (("$defs", "pointCard", "properties", "body", "maxLength"), "point_body_max"),
+        (("$defs", "stepsCard", "properties", "title", "maxLength"), "title_max"),
+        (("$defs", "stepsCard", "properties", "steps", "maxItems"), "steps_max"),
+        (("$defs", "stepsCard", "properties", "steps", "items", "properties", "text", "maxLength"),
+         "steps_step_max"),
+        (("$defs", "contrastCard", "properties", "title", "maxLength"), "title_max"),
+        (("$defs", "contrastSide", "properties", "text", "maxLength"), "contrast_side_max"),
+        (("$defs", "quoteCard", "properties", "text", "maxLength"), "quote_max"),
+    ],
+}
+
+
+def _apply_overrides(kind: str, schema: dict) -> dict:
+    g = settings.load()["generation"]
+    for keys, setting_key in _OVERRIDES.get(kind, []):
+        node = schema
+        for k in keys[:-1]:
+            node = node[k]
+        node[keys[-1]] = g[setting_key]
+    return schema
 
 
 def _validator(kind: str) -> Draft202012Validator:
+    global _cache_stamp
     if kind not in _KINDS:
         raise ValueError(f"未知的 schema 種類：{kind}（可用：{_KINDS}）")
+    # 設定檔變了，快取裡的 validator 就是舊數字——整鍋倒掉重建
+    stamp = settings.mtime()
+    if stamp != _cache_stamp:
+        _cache.clear()
+        _cache_stamp = stamp
     if kind not in _cache:
         path = SCHEMA_DIR / f"{kind}.schema.json"
         with path.open(encoding="utf-8") as f:
-            _cache[kind] = Draft202012Validator(json.load(f))
+            _cache[kind] = Draft202012Validator(_apply_overrides(kind, json.load(f)))
     return _cache[kind]
 
 

@@ -39,7 +39,10 @@ def show(slug: str) -> bool:
 
     print("\n" + "=" * 74)
     print(f"  {src['title'][:60]}")
-    print(f"  {src['author']}｜{article['word_count']} 字｜{article['language']}")
+    # author 是選填（契約 v3.3：課程、官方文件、白皮書常常沒有個人作者）。
+    # 沒有就整段不印——不要留一個孤零零的「｜」開頭，那看起來像出錯。
+    meta = [src.get("author"), f"{article['word_count']} 字", article["language"]]
+    print("  " + "｜".join(m for m in meta if m))
     print("=" * 74)
 
     t0 = time.perf_counter()

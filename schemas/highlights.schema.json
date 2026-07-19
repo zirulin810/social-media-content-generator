@@ -23,6 +23,10 @@
     "model": {
       "type": "string"
     },
+    "human_edited": {
+      "type": "boolean",
+      "description": "人在編輯台改過這份檔案。**設了之後，分析階段不再覆蓋它**——文字是唯一的事實來源，人改了就是最終版（v3.4，[[發布前預覽介面]]）。"
+    },
     "source": {
       "$ref": "#/$defs/source"
     },
@@ -40,8 +44,8 @@
     "posts": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 3,
-      "description": "依資訊密度切。一則貼文 = 一個論點講到能照做；素材薄就 1 則，厚就 2–3 則",
+      "maxItems": 10,
+      "description": "一則貼文一組知識卡。**切幾則是編輯規則（prompt 管），不是物理極限**——上限 10 只擋失控，舊的多則資料照樣合約（v3.7）",
       "items": {
         "$ref": "#/$defs/post"
       }
@@ -212,6 +216,10 @@
             ]
           }
         },
+        "original": {
+          "type": "boolean",
+          "description": "人已明確宣告「這則是我的原創」（編輯台的出處開關，v3.4）。設了才允許沒有結尾卡——**預設一律附出處**，這格不是隨手可關的開關：關掉它等於把別人的東西掛自己的名字發出去，所以必須經過明確宣告。"
+        },
         "topics": {
           "type": "array",
           "items": {
@@ -236,7 +244,6 @@
       "required": [
         "type",
         "text",
-        "evidence",
         "verbatim"
       ],
       "additionalProperties": false,
@@ -252,10 +259,37 @@
         "verbatim": {
           "type": "boolean"
         },
+        "edited": {
+          "$ref": "#/$defs/edited"
+        },
         "evidence": {
           "$ref": "#/$defs/evidenceList"
         }
-      }
+      },
+      "allOf": [
+        {
+          "$comment": "模型產的卡必帶 evidence；人改過的卡（edited: true）程式已把 evidence 拿掉——資料層不存已經不成立的宣稱",
+          "if": {
+            "properties": {
+              "edited": {
+                "const": true
+              }
+            },
+            "required": [
+              "edited"
+            ]
+          },
+          "else": {
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ]
+    },
+    "edited": {
+      "type": "boolean",
+      "description": "這張卡被人在編輯台改過（v3.4）。人改了文字，原本的 evidence 就是一個不再成立的宣稱，程式會把它拿掉——所以 edited: true 的卡不要求 evidence。**這個欄位不會出現在任何介面上**，編輯台就是純粹的編輯台。"
     },
     "pointCard": {
       "type": "object",
@@ -263,13 +297,15 @@
       "required": [
         "type",
         "title",
-        "body",
-        "evidence"
+        "body"
       ],
       "additionalProperties": false,
       "properties": {
         "type": {
           "const": "point"
+        },
+        "edited": {
+          "$ref": "#/$defs/edited"
         },
         "title": {
           "type": "string",
@@ -285,7 +321,26 @@
         "evidence": {
           "$ref": "#/$defs/evidenceList"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "edited": {
+                "const": true
+              }
+            },
+            "required": [
+              "edited"
+            ]
+          },
+          "else": {
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ]
     },
     "stepsCard": {
       "type": "object",
@@ -300,6 +355,9 @@
         "type": {
           "const": "steps"
         },
+        "edited": {
+          "$ref": "#/$defs/edited"
+        },
         "title": {
           "type": "string",
           "minLength": 1,
@@ -312,8 +370,7 @@
           "items": {
             "type": "object",
             "required": [
-              "text",
-              "evidence"
+              "text"
             ],
             "additionalProperties": false,
             "properties": {
@@ -329,7 +386,33 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "$comment": "步驟是跨段綜合的，最容易被腦補——模型產的卡每一步都必須指得出原文。人改過的卡（edited: true）不在此限。",
+          "if": {
+            "properties": {
+              "edited": {
+                "const": true
+              }
+            },
+            "required": [
+              "edited"
+            ]
+          },
+          "else": {
+            "properties": {
+              "steps": {
+                "items": {
+                  "required": [
+                    "evidence"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "contrastCard": {
       "type": "object",
@@ -345,6 +428,9 @@
         "type": {
           "const": "contrast"
         },
+        "edited": {
+          "$ref": "#/$defs/edited"
+        },
         "title": {
           "type": "string",
           "minLength": 1,
@@ -356,13 +442,40 @@
         "right": {
           "$ref": "#/$defs/contrastSide"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "edited": {
+                "const": true
+              }
+            },
+            "required": [
+              "edited"
+            ]
+          },
+          "else": {
+            "properties": {
+              "wrong": {
+                "required": [
+                  "evidence"
+                ]
+              },
+              "right": {
+                "required": [
+                  "evidence"
+                ]
+              }
+            }
+          }
+        }
+      ]
     },
     "contrastSide": {
       "type": "object",
       "required": [
-        "text",
-        "evidence"
+        "text"
       ],
       "additionalProperties": false,
       "properties": {

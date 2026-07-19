@@ -220,9 +220,10 @@ def test_step_without_evidence_is_rejected_by_schema() -> None:
         validate("highlights", data)
 
 
-def test_more_than_three_posts_is_rejected() -> None:
+def test_runaway_post_count_is_rejected() -> None:
+    """v3.7：「切幾則」是編輯規則（prompt 的 posts_rule 管），schema 只擋失控——上限 10。"""
     bad = copy.deepcopy(GOOD)
-    bad["posts"] = bad["posts"] * 4
+    bad["posts"] = bad["posts"] * 11
     data = {
         "schema_version": "3.1",
         "generated_at": "2026-07-13T01:00:00+08:00",

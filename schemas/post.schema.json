@@ -25,6 +25,10 @@
     "model": {
       "type": "string"
     },
+    "human_edited": {
+      "type": "boolean",
+      "description": "人在編輯台改過文案。**設了之後，文案階段不再叫 LLM 重寫**——只會更新圖片清單。LLM 永遠不覆蓋人的編輯（v3.4，[[發布前預覽介面]]）。"
+    },
     "source": {
       "$ref": "#/$defs/source"
     },
@@ -45,7 +49,7 @@
     "post_index": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 3,
+      "maximum": 10,
       "description": "1-based，對應 highlights.posts 的順序"
     },
     "angle": {
@@ -189,7 +193,12 @@
         "attribution": {
           "type": "string",
           "minLength": 1,
-          "description": "原文出處：標題 + 作者 + 連結"
+          "description": "原文出處：標題 + 作者 + 連結。人宣告原創（original）時，這裡記「已宣告原創」"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "人按下平台的「分享」後，回編輯台標「已發布」的時間（v3.6，[[一鍵發布到 IG 與 Threads]]）。程式永遠不自己按分享——這個欄位只記人的動作。"
         }
       }
     }

@@ -11,3 +11,9 @@ out/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# 發布用的瀏覽器登入狀態（cookie）——絕不進版控
+.browser_profile/
+
+# 發布用的本地暫存輸出（重複輸出會覆蓋）
+發布暫存/

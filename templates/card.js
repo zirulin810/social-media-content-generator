@@ -13,6 +13,11 @@
 const MAX_FS = 76;      // px @1080
 const MIN_FS = 34;      // **硬底線**：低於這個根本不能出圖，那不叫圖卡叫掃描件
 const COMFORT_FS = 44;  // **舒適下限**：低於這個就該拆卡了
+/* 上面三個是出廠值。後台設定（[[編輯台後台設定]]）可以覆寫——
+ * 渲染器與編輯台會在呼叫 renderCard 前注入 window.FS_OVERRIDES = {min, max, comfort}。 */
+const fsMin = () => (window.FS_OVERRIDES && window.FS_OVERRIDES.min) || MIN_FS;
+const fsMax = () => (window.FS_OVERRIDES && window.FS_OVERRIDES.max) || MAX_FS;
+const fsComfort = () => (window.FS_OVERRIDES && window.FS_OVERRIDES.comfort) || COMFORT_FS;
 //
 // 兩個門檻，不是一個。
 // 原本我只有 MIN_FS，於是「縮到 34px 還塞得下」就不拆——結果是一面文字牆。
@@ -139,7 +144,7 @@ function overflows(root) {
 
 /* 二分搜尋塞得下的最大字級。回傳 {fs, overflow}。 */
 function autofit(root) {
-  let lo = MIN_FS, hi_ = MAX_FS, best = MIN_FS;
+  let lo = fsMin(), hi_ = fsMax(), best = fsMin();
   const fits = (fs) => {
     root.style.setProperty('--fs', fs + 'px');
     return !overflows(root);
@@ -191,3 +196,7 @@ function renderCard(card, ctx) {
 window.renderCard = renderCard;
 window.CARD_MIN_FS = MIN_FS;
 window.CARD_COMFORT_FS = COMFORT_FS;
+/* 覆寫後的有效值（編輯台的字級標示要用有效值，不是出廠值） */
+Object.defineProperty(window, "CARD_FS_EFFECTIVE", {
+  get: () => ({ min: fsMin(), max: fsMax(), comfort: fsComfort() }),
+});

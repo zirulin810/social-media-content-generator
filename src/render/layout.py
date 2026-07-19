@@ -14,12 +14,17 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from .. import settings
 from ..errors import ErrorCode, PipelineError
 
 # fits(card) -> True 表示這張卡在可讀性下限之上塞得進版面
 FitFn = Callable[[dict[str, Any]], bool]
 
-MAX_SPLITS = 4  # 一張卡最多拆成幾張。再多就是內容本身有問題，不是版型的錯
+MAX_SPLITS = 4  # 出廠預設；實際值由後台設定管（_max_splits()）。再多就是內容問題，不是版型的錯
+
+
+def _max_splits() -> int:
+    return int(settings.render("max_splits"))
 
 
 def _clone(card: dict[str, Any], **over: Any) -> dict[str, Any]:
@@ -57,7 +62,7 @@ def _split_steps(card: dict[str, Any], fits: FitFn) -> list[dict[str, Any]]:
     # 從多到少 = 用最少的卡片數。
     for per in range(len(steps) - 1, 0, -1):
         chunks = _balanced(steps, per)
-        if len(chunks) > MAX_SPLITS:
+        if len(chunks) > _max_splits():
             continue
         cards = []
         start = 1
@@ -102,7 +107,7 @@ def _split_point(card: dict[str, Any], fits: FitFn) -> list[dict[str, Any]]:
     if cur:
         chunks.append(cur)
 
-    if len(chunks) < 2 or len(chunks) > MAX_SPLITS:
+    if len(chunks) < 2 or len(chunks) > _max_splits():
         return [card]
     if not all(fits(_clone(card, body=c)) for c in chunks):
         return [card]  # 連單句都塞不下——那是句子本身太長

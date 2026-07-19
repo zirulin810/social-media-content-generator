@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
+from . import settings
 from .errors import ErrorCode, PipelineError
 
 LLMFn = Callable[[str], str]
@@ -32,6 +33,31 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+
+
+# ---------------------------------------------------------------------------
+# 執行參數改由後台設定管（[[編輯台後台設定]]）。
+# 優先序：**環境變數 > settings.json > 內建預設**——環境變數是除錯用的手動排檔。
+# 上面的模組常數保留（import 時的快照，測試在用），實際執行一律走這些函式：
+# 設定頁改了模型，**不用重啟**就生效。
+# ---------------------------------------------------------------------------
+
+def provider() -> str:
+    env = os.environ.get("LLM_PROVIDER")
+    return (env or str(settings.llm("provider"))).lower()
+
+
+def gemini_model() -> str:
+    return os.environ.get("GEMINI_MODEL") or str(settings.llm("gemini_model"))
+
+
+def anthropic_model() -> str:
+    return os.environ.get("ANTHROPIC_MODEL") or str(settings.llm("anthropic_model"))
+
+
+def temperature() -> float:
+    env = os.environ.get("LLM_TEMPERATURE")
+    return float(env) if env else float(settings.llm("temperature"))
 
 TIMEOUT = 180  # 大 prompt + 大輸出，120 秒不夠
 
@@ -126,18 +152,18 @@ def list_models() -> list[str]:
 
 
 def gemini(prompt: str) -> str:
-    url = f"{GEMINI_BASE}/models/{GEMINI_MODEL}:generateContent?key={_gemini_key()}"
+    url = f"{GEMINI_BASE}/models/{gemini_model()}:generateContent?key={_gemini_key()}"
     data = _post_json(
         url,
         {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.4,
+                "temperature": temperature(),
                 # v3 的產出（1–3 則貼文 × 每張卡的 evidence）比 v2 大得多。
                 # 而且 Gemini 2.5 的 **thinking token 會吃掉 output 預算**——
                 # 它先想一大堆，剩下的額度不夠寫完 JSON，就從中間被切斷。
                 # 這是我第二次栽在截斷上：第一次是額度太小，第二次是額度被 thinking 吃掉。
-                "maxOutputTokens": 65536,
+                "maxOutputTokens": int(settings.adv("max_output_tokens")),
                 "thinkingConfig": {"thinkingBudget": 0},  # 這是結構化抽取，不需要它先想
                 # 直接要求回 JSON，省掉「模型愛加 markdown 圍欄」的那一類麻煩
                 "responseMimeType": "application/json",
@@ -177,7 +203,7 @@ def anthropic(prompt: str) -> str:
     data = _post_json(
         "https://api.anthropic.com/v1/messages",
         {
-            "model": ANTHROPIC_MODEL,
+            "model": anthropic_model(),
             "max_tokens": 8192,
             "messages": [{"role": "user", "content": prompt}],
         },
@@ -190,17 +216,18 @@ PROVIDERS: dict[str, LLMFn] = {"gemini": gemini, "anthropic": anthropic}
 
 
 def get_llm() -> LLMFn:
-    if PROVIDER not in PROVIDERS:
+    p = provider()
+    if p not in PROVIDERS:
         raise PipelineError(
             ErrorCode.MISSING_INPUT,
-            f"未知的 LLM_PROVIDER：{PROVIDER}",
+            f"未知的 LLM_PROVIDER：{p}",
             hint=f"可用：{', '.join(PROVIDERS)}",
         )
-    return PROVIDERS[PROVIDER]
+    return PROVIDERS[p]
 
 
 def current_model() -> str:
-    return GEMINI_MODEL if PROVIDER == "gemini" else ANTHROPIC_MODEL
+    return gemini_model() if provider() == "gemini" else anthropic_model()
 
 
 __all__ = ["get_llm", "list_models", "current_model", "PROVIDER", "LLMFn"]
