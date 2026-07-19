@@ -47,7 +47,7 @@ def run(*args) -> None:
 
 def main() -> int:
     print("=" * 62)
-    print("  自動化輸出 — 安裝")
+    print("  圖文產生器 — 安裝")
     print("=" * 62)
     print(f"\n專案：{ROOT}")
     print(f"系統：{'Windows' if WINDOWS else os.name}")

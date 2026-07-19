@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<title>編輯台</title>
+<title>圖文產生器</title>
 <style>
 /* ------------------------------------------------------------------
    編輯台（[[發布前預覽介面]]）
@@ -15,7 +15,8 @@
 * { margin:0; padding:0; box-sizing:border-box; }
 :root {
   --bg:#F2F1EE; --panel:#FFFFFF; --ink:#171717; --soft:#6B6862; --mute:#A29D93;
-  --line:#E2DFD8; --acc:#111111; --ok:#0A7A4B; --warn:#B96A00; --bad:#C0392B;
+  --line:#E2DFD8; --acc:#EDEAE2;   /* 按鈕選中／主要鍵：跟側欄選中素材同色（Human 2026-07-20 指定） */
+  --acc-line:#CFC9BC; --ok:#0A7A4B; --warn:#B96A00; --bad:#C0392B;
   --r:10px;
 }
 html,body { height:100%; }
@@ -25,8 +26,8 @@ body { background:var(--bg); color:var(--ink);
 button { font:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
          border-radius:7px; padding:6px 12px; color:var(--ink); }
 button:hover { border-color:#BBB; }
-button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-button.pri { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:700; }
+button.on { background:var(--acc); color:var(--ink); border-color:var(--acc-line); font-weight:700; }
+button.pri { background:var(--acc); color:var(--ink); border-color:var(--acc-line); font-weight:700; }
 button.ghost { border:none; background:transparent; padding:4px 6px; color:var(--soft); }
 button.ghost:hover { color:var(--ink); }
 input[type=text], textarea { font:inherit; border:1px solid var(--line); border-radius:7px;
@@ -59,18 +60,30 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
           padding:10px 18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 #topbar .sep { width:1px; height:22px; background:var(--line); }
 #topbar label { font-size:12px; font-weight:700; color:var(--soft); }
-#handle { width:150px; padding:5px 9px; font-size:13px; }
+#handle { width:200px; padding:6px 9px; font-size:13px; }
+.approw { display:flex; align-items:center; gap:10px; margin:6px 0; flex-wrap:wrap; }
+.approw > label { flex:none; font-size:12.5px; font-weight:700; color:var(--soft); margin-left:8px; }
+.approw > label:first-child { margin-left:0; }
+.approw #handle { flex:1; min-width:160px; max-width:240px; }
+.apphr { height:1px; background:var(--line); margin:14px 0 4px; }
 #themeSel { font:inherit; font-size:13px; padding:6px 9px; border:1px solid var(--line);
             border-radius:7px; background:#fff; }
-#viewBtns { display:inline-flex; gap:6px; }
+#viewBtns { display:flex; flex:1; gap:10px; align-items:center; }
+#cogBtn { margin-left:auto; }
+.seg-group { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.seg-group button { border:none; border-radius:0; padding:6px 16px; background:#fff; }
+.seg-group button + button { border-left:1px solid var(--line); }
+.seg-group button.on { background:var(--acc); color:var(--ink); font-weight:700; }
+#outBtn { background:var(--acc); color:var(--ink); border-color:var(--acc-line); font-weight:700; padding:6px 18px; }
 #saveState { position:fixed; right:16px; bottom:12px; z-index:40; font-size:11.5px;
              color:var(--soft); background:var(--panel); border:1px solid var(--line);
              border-radius:999px; padding:4px 12px; }
 #saveState:empty { display:none; }
 #saveState.err { color:var(--bad); font-weight:700; }
 #viewBtns { margin-left:auto; }
-#settingsBtn { margin-left:8px; }
+
 #tabs { display:flex; gap:6px; align-items:center; padding:12px 18px 0; }
+#tabs:empty { display:none; }
 .tab { padding:6px 14px; border-radius:8px 8px 0 0; border:1px solid var(--line);
        border-bottom:none; background:#EAE7E0; font-size:13px; cursor:pointer; }
 .tab.on { background:var(--panel); font-weight:700; }
@@ -205,13 +218,13 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 .setcols.solo #promptPane { display:none; }
 .gtabs { display:flex; gap:6px; margin:4px 0 8px; }
 .gtabs button { border-radius:8px 8px 0 0; border-bottom:none; background:#EAE7E0; }
-.gtabs button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+.gtabs button.on { background:var(--acc); color:var(--ink); border-color:var(--acc-line); font-weight:700; }
 .prow { display:flex; align-items:baseline; gap:8px; width:100%; text-align:left;
         padding:10px 12px; border:1px solid var(--line); border-radius:8px; margin-top:8px;
         background:#fff; cursor:pointer; font-size:13px; font-weight:700; }
 .prow:hover { border-color:#BBB; }
-.prow.on { background:var(--acc); color:#fff; border-color:var(--acc); }
-.prow.on .tiny { color:#CCC; }
+.prow.on { background:var(--acc); color:var(--ink); border-color:var(--acc-line); }
+.prow.on .tiny { color:var(--soft); }
 #promptPane { position:sticky; top:12px; }
 .pane-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
 .pane-head h3 { margin:0; }
@@ -278,7 +291,7 @@ details.ptab summary { cursor:pointer; font-weight:700; font-size:13px; }
 <body>
 
 <div id="side">
-  <h1>編輯台</h1>
+  <h1>圖文產生器</h1>
   <div class="hint">素材（.md）直接拖進視窗，就會開始跑。</div>
   <div id="arts"></div>
   <div id="dropHint">把 .md 拖到這個視窗<br>→ 讀取 → 抽卡 → 開始編輯</div>
@@ -286,16 +299,7 @@ details.ptab summary { cursor:pointer; font-weight:700; font-size:13px; }
 
 <div id="main">
   <div id="topbar">
-    <label>主題</label>
-    <select id="themeSel"></select>
-    <span class="sep"></span>
-    <label>比例</label>
-    <button id="r1">1:1</button><button id="r2">4:5</button>
-    <span class="sep"></span>
-    <label>帳號</label>
-    <input type="text" id="handle" placeholder="@your_handle">
     <span id="viewBtns"></span>
-    <button id="settingsBtn">⚙ 設定</button>
   </div>
   <div id="tabs"></div>
   <div id="stage"><div id="empty">← 左邊挑一篇素材，或把 .md 拖進來</div></div>
@@ -314,7 +318,7 @@ details.ptab summary { cursor:pointer; font-weight:700; font-size:13px; }
 ===================================================================== */
 const S = {
   slug: null, hl: null, posts: {},          // highlights ＋ 各則 post.json
-  pi: 1, view: "edit", sub: "cards",        // 目前貼文（1-based）、視圖、編輯分頁（圖卡/文案）
+  pi: 1, view: "cards",                     // 目前貼文（1-based）；視圖：cards/caption/sim/settings
   cfg: { handle: "@your_handle", theme: "b", ratio: "1x1" },
   articles: [],
   cap: null,                                // 文案編輯中的 {hook, body, tags}
@@ -550,8 +554,8 @@ function renderEdit() {
   stage.innerHTML = "";
   const p = post();
 
-  // 文案分頁：只放文案（Human 2026-07-15：不再沉在頁面底部）
-  if (S.sub === "caption") {
+  // 文案視圖：只放文案
+  if (S.view === "caption") {
     const cap = captionPanel();
     cap.style.marginTop = "0";
     stage.appendChild(cap);
@@ -767,7 +771,7 @@ function captionPanel() {
   const wrap = document.createElement("div"); wrap.id = "capWrap";
   const pj = S.posts[String(S.pi)];
   if (!pj) {
-    wrap.innerHTML = `<h3>文案</h3><div id="capEmpty">這則還沒有文案。按右上角「發布」（或彈窗裡的「輸出到資料夾」），會自動出圖＋寫初稿——之後這裡的每一個字都可以直接改。</div>`;
+    wrap.innerHTML = `<h3>文案</h3><div id="capEmpty">這則還沒有文案。按右上角「輸出」（發 IG／Threads，或存到本地資料夾），會自動出圖＋寫初稿——之後這裡的每一個字都可以直接改。</div>`;
     return wrap;
   }
   if (!S.cap) S.cap = splitCaption(pj);
@@ -828,8 +832,8 @@ function openPublishModal() {
   if (!S.slug) return toast("先挑一篇素材");
   const destHint = `暫存/${S.slug}-p${S.pi}/`;
   openModal(`
-    <h3>發布</h3>
-    <div class="p">半自動：瀏覽器開站、圖片就位、文案已貼——<b>最後的「分享」由你按</b>。
+    <h3>輸出</h3>
+    <div class="p">半自動發布：瀏覽器開站、圖片就位、文案已貼——<b>最後的「分享」由你按</b>。
     第一次使用會請你在打開的視窗登入。</div>
     <div class="setbtns" style="margin-top:14px">
       <button class="pri" id="pubIG">發布到 IG</button>
@@ -1011,7 +1015,7 @@ function buildDiffs(scope, cardIdx, oldC, sug, out) {
     done.innerHTML = `<button class="pri">完成，回到編輯</button>`;
     done.querySelector("button").onclick = () => {
       closeModal();
-      if (S.view !== "edit" || S.sub !== "cards" || !refreshDeck()) renderAll();
+      if (S.view !== "cards" || !refreshDeck()) renderAll();
     };
     out.appendChild(done);
   }
@@ -1107,8 +1111,8 @@ function renderSim() {
   const cards = deckCards();
   const pj = S.posts[String(S.pi)];
   const cap = S.cap || (pj ? splitCaption(pj) : null);
-  const igText = cap ? joinCaption(cap, true) : "（還沒有文案——按「發布」會自動出圖＋寫初稿）";
-  const thText = cap ? joinCaption(cap, false) : "（還沒有文案——按「發布」會自動出圖＋寫初稿）";
+  const igText = cap ? joinCaption(cap, true) : "（還沒有文案——按「輸出」會自動出圖＋寫初稿）";
+  const thText = cap ? joinCaption(cap, false) : "（還沒有文案——按「輸出」會自動出圖＋寫初稿）";
   const row = document.createElement("div"); row.className = "simrow";
   const igCol = document.createElement("div");
   igCol.innerHTML = `<div class="simhead">Instagram</div>`;
@@ -1249,8 +1253,9 @@ async function renderSettings() {
   ];
   const common = document.createElement("div"); common.className = "setcard";
   common.innerHTML = `<h3>常用設定</h3>
-    <div class="sub2">平常只需要動這裡。改了會讓舊產物過期——重跑「分析全部素材」生效。
-    完整參數在下面的「全部設定（進階）」。</div>`;
+    <div class="sub2">平常只需要動這裡。外觀（主題／比例／帳號）即時生效；密度改了會讓舊產物過期，重出時套用。</div>`;
+  common.appendChild(buildAppearance());
+  common.insertAdjacentHTML("beforeend", `<div class="apphr"></div>`);
   for (const [key, label, levels, sample, desc] of DENS) {
     const row = document.createElement("div"); row.className = "denrow";
     const ctrl = document.createElement("div");
@@ -1455,7 +1460,7 @@ async function renderSettings() {
 
   const back = document.createElement("div"); back.className = "setbtns";
   back.innerHTML = `<button id="setBack">← 回編輯台</button>`;
-  back.querySelector("button").onclick = () => { S.view = "edit"; renderAll(); };
+  back.querySelector("button").onclick = () => { S.view = "cards"; renderAll(); };
   left.appendChild(back);
 
   // ---- 右側：提示詞展開面板（sticky，佔右半屏） ----
@@ -1505,10 +1510,7 @@ async function renderSettings() {
   drawPane();
 }
 
-$("#settingsBtn").onclick = () => {
-  S.view = S.view === "settings" ? "edit" : "settings";
-  renderAll();
-};
+
 
 /* =====================================================================
    佈局：側欄、tabs、視圖切換
@@ -1544,23 +1546,9 @@ function renderSide() {
 }
 function renderTabs() {
   const t = $("#tabs"); t.innerHTML = "";
-  if (S.view === "settings") return;   // 設定頁：這排與它無關
-  if (!S.hl) return;
-
-  // 圖卡／文案分頁（Human 2026-07-15：文案不再沉底，取代「第N則」的位置）
-  if (S.view === "edit") {
-    [["cards", "圖卡"], ["caption", "文案"]].forEach(([k, label]) => {
-      const b = document.createElement("div");
-      b.className = "tab" + (S.sub === k ? " on" : "");
-      b.textContent = label;
-      b.onclick = () => { S.sub = k; renderAll(); };
-      t.appendChild(b);
-    });
-  }
-
-  // 一素材一則是新常態——只有多則的舊資料才顯示則切換與整則刪除
+  if (S.view === "settings" || !S.hl) return;
+  // 一素材一則是常態——這一列只服務多則的舊資料
   if (S.hl.posts.length > 1) {
-    const sep = document.createElement("span"); sep.style.cssText = "width:14px"; t.appendChild(sep);
     S.hl.posts.forEach((p, i) => {
       const b = document.createElement("div");
       b.className = "tab" + (i + 1 === S.pi ? " on" : "");
@@ -1584,37 +1572,51 @@ function renderTabs() {
     };
     t.appendChild(del);
   }
-
-  if (S.view === "edit") {   // 重新起草是編輯的事，模擬頁不放
-    const re = document.createElement("button"); re.className = "ghost"; re.textContent = "🤖 重新起草…";
-    re.style.marginLeft = "10px";
-    re.onclick = () => openSuggest("redraft");
-    t.appendChild(re);
-  }
-
 }
 
 /* 編輯／模擬／發布——放頂欄帳號右邊（Human 2026-07-15） */
 function syncViews() {
   const box = $("#viewBtns");
   box.innerHTML = "";
-  [["edit","編輯"],["sim","模擬"]].forEach(([v, label]) => {
-    const b = document.createElement("button");
-    b.textContent = label; b.className = S.view === v ? "on" : "";
-    b.onclick = () => { S.view = v; renderAll(); };
-    box.appendChild(b);
-  });
-  const pub = document.createElement("button"); pub.textContent = "發布";
-  pub.onclick = openPublishModal;
-  box.appendChild(pub);
+
+  // 扁平三視圖（Human 2026-07-19：「編輯」是假分類——真正在切的是圖卡/文案/模擬）
+  if (S.hl) {
+    const seg = document.createElement("div"); seg.className = "seg-group";
+    [["cards","圖卡"],["caption","文案"],["sim","模擬"]].forEach(([v, label]) => {
+      const b = document.createElement("button");
+      b.textContent = label; b.className = S.view === v ? "on" : "";
+      b.onclick = () => { S.view = v; renderAll(); };
+      seg.appendChild(b);
+    });
+    box.appendChild(seg);
+
+    const out = document.createElement("button"); out.id = "outBtn";
+    out.textContent = "輸出";
+    out.onclick = openPublishModal;
+    box.appendChild(out);
+
+    const re = document.createElement("button"); re.className = "ghost";
+    re.textContent = "🤖 重新起草…";
+    re.onclick = () => openSuggest("redraft");
+    box.appendChild(re);
+  }
+
+  const cog = document.createElement("button"); cog.id = "cogBtn";
+  cog.textContent = "⚙ 設定";
+  cog.className = S.view === "settings" ? "on" : "";
+  cog.onclick = () => { S.view = S.view === "settings" ? "cards" : "settings"; renderAll(); };
+  box.appendChild(cog);
 }
 
 function renderAll() {
   renderSide(); renderTabs(); syncViews();
   if (S.view === "settings") { renderSettings(); return; }
-  if (!S.hl) return;
-  if (S.view === "edit") renderEdit();
-  else renderSim();
+  if (!S.hl) {
+    $("#stage").innerHTML = `<div id="empty">← 左邊挑一篇素材，或把 .md 拖進來</div>`;
+    return;
+  }
+  if (S.view === "sim") renderSim();
+  else renderEdit();           // cards 與 caption 都由 renderEdit 分流
 }
 async function openArticle(slug) {
   try {
@@ -1631,26 +1633,44 @@ async function openArticle(slug) {
 const THEMES = [
   ["a", "編輯大字"], ["b", "深色螢光"], ["c", "雜誌黑白"], ["d", "奶油暖調"], ["e", "藍圖"],
 ];
-function syncTop() {
-  const sel = $("#themeSel");
-  sel.innerHTML = THEMES.map(([k, name]) => `<option value="${k}">${name}</option>`).join("");
-  sel.value = S.cfg.theme;
-  sel.onchange = () => setCfg({ theme: sel.value });
-  $("#r1").className = S.cfg.ratio === "1x1" ? "on" : "";
-  $("#r2").className = S.cfg.ratio === "4x5" ? "on" : "";
-  $("#handle").value = S.cfg.handle;
+// 外觀（主題／比例／帳號）從頂欄搬進設定頁的常用區（Human 2026-07-19）。
+// 這個函式建出那三個控制項，插在常用設定卡最上面；setCfg 改動 cfg 後會同步它們的 UI。
+function buildAppearance() {
+  const box = document.createElement("div"); box.id = "appear";
+  box.innerHTML = `
+    <div class="approw">
+      <label>主題</label>
+      <select id="themeSel">${THEMES.map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select>
+      <label>比例</label>
+      <span class="seg-group"><button id="r1">1:1</button><button id="r2">4:5</button></span>
+      <label>帳號</label>
+      <input type="text" id="handle" placeholder="@your_handle">
+    </div>`;
+  box.querySelector("#themeSel").onchange = e => setCfg({ theme: e.target.value });
+  box.querySelector("#r1").onclick = () => setCfg({ ratio: "1x1" });
+  box.querySelector("#r2").onclick = () => setCfg({ ratio: "4x5" });
+  let hT = null;
+  box.querySelector("#handle").addEventListener("input", e => {
+    clearTimeout(hT); hT = setTimeout(() => setCfg({ handle: e.target.value || "@your_handle" }), 700);
+  });
+  syncAppearance(box);
+  return box;
+}
+// 只在外觀控制項存在（設定頁開著）時同步其顯示狀態——頂欄已經沒有它們了
+function syncAppearance(root) {
+  root = root || document;
+  const sel = root.querySelector("#themeSel"); if (sel) sel.value = S.cfg.theme;
+  const r1 = root.querySelector("#r1"); if (r1) r1.className = S.cfg.ratio === "1x1" ? "on" : "";
+  const r2 = root.querySelector("#r2"); if (r2) r2.className = S.cfg.ratio === "4x5" ? "on" : "";
+  const h = root.querySelector("#handle"); if (h && document.activeElement !== h) h.value = S.cfg.handle;
 }
 async function setCfg(patch) {
   Object.assign(S.cfg, patch);
-  syncTop();
+  syncAppearance();   // 設定頁若開著，主題／比例的高亮跟著更新
   // 出圖是純函式：換主題／比例只是重畫。編輯視圖能就地重畫就不重建（重建＝閃）
-  if (S.hl && !(S.view === "edit" && S.sub === "cards" && refreshDeck())) renderAll();
+  if (S.hl && !(S.view === "cards" && refreshDeck())) renderAll();
   try { await api("/api/config", S.cfg); } catch (e) { /* 設定存不進去不擋人 */ }
 }
-$("#r1").onclick = () => setCfg({ ratio: "1x1" });
-$("#r2").onclick = () => setCfg({ ratio: "4x5" });
-let hT = null;
-$("#handle").addEventListener("input", e => { clearTimeout(hT); hT = setTimeout(() => setCfg({ handle: e.target.value || "@your_handle" }), 700); });
 
 /* =====================================================================
    背景工作顯示
@@ -1753,7 +1773,7 @@ window.closeModal = closeModal;
     const st = await api("/api/state");
     S.articles = st.articles;
     Object.assign(S.cfg, st.config || {});
-    syncTop(); renderSide();
+    renderSide();
     if (S.articles.length) openArticle(S.articles[0].slug);
   } catch (e) { toast("讀不到狀態：" + e.message, 8000); }
 })();
