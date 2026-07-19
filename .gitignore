@@ -18,3 +18,6 @@ __pycache__/
 # 發布用的本地暫存輸出（重複輸出會覆蓋）
 發布暫存/
 暫存/
+
+# 個人偏好（每個人自己的，出廠值在 src/settings.py）
+settings.json

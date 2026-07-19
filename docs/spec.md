@@ -236,7 +236,7 @@ Human 2026-07-14 看圖選定：**步驟＝精簡（目標 25 字）、重點＝
 1. `human_edited` 的 highlights，analyze **連 `--force` 都不覆蓋**。要整份重來，人自己刪檔。
 2. `edited: true` 的卡片 **evidence 被拿掉**——人改了字，「這句出自第 N 段」就不再成立。
    這件事不出現在任何畫面上；面板上**沒有**任何驗證／原文對照的介面（那條線留在
-   `分析全部素材.bat` 的終端機輸出）。
+   `python scripts/analyze_all.py` 的終端機輸出）。
 3. `human_edited` 的 post.json，compose 只更新圖片清單，caption 一個字不碰。
 
 出處開關選「錯了也安全」的預設：一律附出處（結尾卡）；要關掉必須在面板上

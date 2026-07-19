@@ -222,25 +222,6 @@ def test_split_script_refuses_to_pass_vacuously() -> None:
     assert "vacuous" in src
 
 
-def test_sample_cards_stay_inside_the_contract() -> None:
-    """壓力測試卡也得是**契約允許的**卡。
-
-    原本 _stress 放了一張 5 步的步驟卡（schema 上限是 4）——
-    測一個 pipeline 永遠產不出來的情況，過與不過都沒有意義。
-    """
-    lim = _limits()
-    sample = json.loads(
-        (PROJECT_ROOT / "samples" / "kaggle-day1-intro.json").read_text(encoding="utf-8")
-    )
-    for group in ("cards", "_stress"):
-        for card in sample.get(group, []):
-            if card["type"] == "steps":
-                assert len(card["steps"]) <= lim["steps_max"], f"{group}: 步數超出契約"
-                for s in card["steps"]:
-                    assert len(s["text"]) <= lim["step_chars"], f"{group}: 步驟字數超出契約"
-            elif card["type"] == "point":
-                assert len(card["body"]) <= lim["point_chars"], f"{group}: 重點字數超出契約"
-
 
 def test_schema_limits_are_physical_not_editorial() -> None:
     """schema 的上限必須訂在「版面印不出來」的地方，不是「我希望它寫多短」。

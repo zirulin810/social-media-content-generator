@@ -75,9 +75,14 @@ def test_autofit_has_a_readability_floor() -> None:
 
 
 def test_every_card_type_has_a_template() -> None:
-    """新增卡型忘了寫 template → 渲染時才炸。這裡先攔。"""
-    sample = json.loads((PROJECT_ROOT / "samples" / "kaggle-day1-intro.json").read_text(encoding="utf-8"))
-    used = {c["type"] for c in sample["cards"] + sample["_stress"]}
+    """每種卡型都要有對應的 render template，否則渲染時才炸。這裡先攔。
+
+    卡型的事實來源是 schema（highlights 的四種內容卡）＋封面／結尾。
+    """
+    import json as _json
+    schema = _json.loads((PROJECT_ROOT / "schemas" / "highlights.schema.json").read_text(encoding="utf-8"))
+    card_types = set(schema["$defs"]["post"]["properties"]["cards"]["items"]["properties"]["type"]["enum"])
+    used = card_types | {"cover", "outro"}
     defined = set(re.findall(r"^  (\w+): \(c, ctx\)", JS, re.M))
     assert used <= defined, f"缺少 template：{used - defined}"
 
@@ -157,7 +162,7 @@ def test_browser_errors_speak_human() -> None:
     assert "playwright install`" in BROWSER_PY or "playwright install" in BROWSER_PY
     assert "不要" in BROWSER_PY, "要警告別跑不帶參數的 playwright install"
 
-    for script in ("render_sample.py", "test_split.py", "check_browser.py"):
+    for script in ("test_split.py", "check_browser.py"):
         src = (PROJECT_ROOT / "scripts" / script).read_text(encoding="utf-8")
         assert "except PipelineError" in src, f"{script} 要接住環境錯誤，不要噴 traceback"
 

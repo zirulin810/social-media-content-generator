@@ -165,7 +165,7 @@ def collect_images(slug: str, post_index: int, original: bool = False) -> list[d
         raise PipelineError(
             ErrorCode.MISSING_INPUT,
             f"第 {post_index} 則貼文還沒有圖卡：{d}",
-            hint="先跑「出圖.bat」",
+            hint="在編輯台按「發布」會自動出圖，或跑 python -m src.cli",
         )
 
     images: list[dict[str, Any]] = []
@@ -195,7 +195,7 @@ def collect_images(slug: str, post_index: int, original: bool = False) -> list[d
         raise PipelineError(
             ErrorCode.MISSING_INPUT,
             f"第 {post_index} 則沒有結尾卡（outro），出處會消失",
-            hint="出處只剩結尾卡在扛（caption 不再帶）。重跑「出圖.bat」",
+            hint="出處只剩結尾卡在扛（caption 不再帶）。重出圖即可（編輯台按「發布」）",
         )
     return images
 

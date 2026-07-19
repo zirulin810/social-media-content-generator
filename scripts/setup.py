@@ -78,7 +78,7 @@ def main() -> int:
     print("  裝好了。東西在哪：")
     print(f"    套件      {VENV}")
     print("    Chromium  C:\\Users\\<你>\\AppData\\Local\\ms-playwright\\")
-    print("\n  接下來雙擊「出圖.bat」")
+    print("\n  安裝完成——編輯台即將開啟")
     print("=" * 62)
     return 0
 
