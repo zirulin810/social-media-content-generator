@@ -56,7 +56,8 @@
  "evidence": [{"para_index": 26, "source_text": "But give it a map and it can figure out which files are actually relevant."}]}
 ```
 
-`title` {title_max} 字內。`body` **目標 {point_body_target} 字**——一張卡一個主張，講清楚就好，硬上限 {point_body_max}。
+`title` 精簡有力（**目標 24 字內**；硬上限 {title_max}，超過版面會縮字級，但太長就不像標題了）。
+`body` **目標 {point_body_target} 字**——一張卡一個主張，講清楚就好，硬上限 {point_body_max}。
 
 ### `steps`（步驟卡）— 可照做的流程
 
@@ -160,7 +161,7 @@
 | `summary` 每條 | — | {summary_item_max} |
 | `angle` | — | {angle_max} |
 | `hook` | — | {cover_hook_max} |
-| 卡片 `title` | — | {title_max} |
+| 卡片 `title` | **24** | {title_max} |
 | `point.body` | **{point_body_target}** | {point_body_max} |
 | `steps` 每步 | **{steps_step_target}** | {steps_step_max} |
 | `steps` 步數 | 流程有幾步就幾步 | {steps_max} |

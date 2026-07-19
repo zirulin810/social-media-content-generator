@@ -207,7 +207,7 @@ def prefill(payload: dict[str, Any], on_stage=None) -> None:
                 _prefill_instagram(page, payload, say)
             else:
                 _prefill_threads(page, payload, say)
-            say("已就位——過目後請自己按「分享」；發完回編輯台標「已發布」")
+            say("已就位——過目後請自己按「分享」；發完把這個瀏覽器視窗關掉就行")
         except PipelineError:
             raise
         except Exception as e:  # noqa: BLE001 — 網站改版等。講清楚，讓人走備援

@@ -60,6 +60,9 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 #topbar .sep { width:1px; height:22px; background:var(--line); }
 #topbar label { font-size:12px; font-weight:700; color:var(--soft); }
 #handle { width:150px; padding:5px 9px; font-size:13px; }
+#themeSel { font:inherit; font-size:13px; padding:6px 9px; border:1px solid var(--line);
+            border-radius:7px; background:#fff; }
+#viewBtns { display:inline-flex; gap:6px; }
 #saveState { margin-left:auto; font-size:12px; color:var(--mute); }
 #settingsBtn { margin-left:10px; }
 #saveState.err { color:var(--bad); font-weight:700; }
@@ -67,7 +70,6 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 .tab { padding:6px 14px; border-radius:8px 8px 0 0; border:1px solid var(--line);
        border-bottom:none; background:#EAE7E0; font-size:13px; cursor:pointer; }
 .tab.on { background:var(--panel); font-weight:700; }
-#viewSel { margin-left:auto; display:flex; gap:6px; }
 #stage { flex:1; overflow:auto; padding:16px 18px 60px; }
 
 /* ---------- 卡片編輯 ---------- */
@@ -100,7 +102,9 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 
 /* ---------- 文案 ---------- */
 #capWrap { margin-top:26px; background:var(--panel); border:1px solid var(--line);
-           border-radius:var(--r); padding:16px 18px; max-width:860px; }
+           border-radius:var(--r); padding:16px 18px; max-width:960px; }
+/* 文案分頁：正文編輯區直接吃到頁面最下方（Human 2026-07-15） */
+#capWrap textarea#capBody { min-height:calc(100vh - 400px); }
 #capWrap h3 { font-size:14px; margin-bottom:4px; }
 #capWrap .row { margin-top:12px; }
 #capWrap .lab { display:flex; align-items:baseline; gap:8px; margin-bottom:5px; }
@@ -149,6 +153,9 @@ textarea { resize:vertical; min-height:70px; line-height:1.7; }
 .th-meta { font-size:11px; color:#8A8A8A; margin-top:10px; }
 .simNote { max-width:392px; margin:10px auto 0; font-size:11px; color:var(--mute);
            line-height:1.7; text-align:center; }
+.simrow { display:flex; gap:88px; justify-content:center; align-items:flex-start; flex-wrap:wrap; }
+.simhead { text-align:center; font-size:12.5px; font-weight:800; letter-spacing:.08em;
+           color:var(--soft); margin-bottom:8px; }
 
 /* ---------- 覆蓋層 ---------- */
 #ovl { position:fixed; inset:0; background:rgba(20,18,14,.45); display:none;
@@ -276,14 +283,15 @@ details.ptab summary { cursor:pointer; font-weight:700; font-size:13px; }
 <div id="main">
   <div id="topbar">
     <label>主題</label>
-    <button id="ta">A 編輯大字</button><button id="tb">B 深色螢光</button>
+    <select id="themeSel"></select>
     <span class="sep"></span>
     <label>比例</label>
     <button id="r1">1:1</button><button id="r2">4:5</button>
     <span class="sep"></span>
-    <label>IG 帳號</label>
+    <label>帳號</label>
     <input type="text" id="handle" placeholder="@your_handle">
     <span class="sep"></span>
+    <span id="viewBtns"></span>
     <span id="saveState"></span>
     <button id="settingsBtn">⚙ 設定</button>
   </div>
@@ -394,15 +402,19 @@ function cardFrame(card, opts) {
     } else { fitEl.className = "fit ok"; fitEl.textContent = r.fs + "px"; }
   };
 
-  f.onload = () => {
+  const draw = c => {                          // 初繪與重繪共用：同一個 iframe 原地重畫
     const d = f.contentDocument, w = f.contentWindow;
     d.body.dataset.theme = S.cfg.theme;
     d.body.dataset.ratio = S.cfg.ratio;
     if (S.cfg.render) w.FS_OVERRIDES = { min: S.cfg.render.min_fs, max: S.cfg.render.max_fs, comfort: S.cfg.render.comfort_fs };
-    const r = w.renderCard(card, ctx());
+    const r = w.renderCard(c, ctx());
     scale(); showFit(r);
-    if (opts.editable) bindEditable(f, card, opts.onEdit, opts.onRestore, showFit);
+    if (opts.editable) bindEditable(f, c, opts.onEdit, opts.onRestore, showFit);
   };
+  f.onload = () => draw(card);
+  // 收筆後的重出**不重載 iframe**——重載會重抓 card.html 與字體，畫面就是那一下在閃
+  // （Human 2026-07-15 回報）。原地重畫只換 DOM，不閃。
+  shot.redrawCard = c => { try { draw(c); } catch (e) { /* iframe 還沒好就等 onload */ } };
   new ResizeObserver(scale).observe(shot);
   return shot;
 }
@@ -428,6 +440,17 @@ function editableMap(doc, card) {
     one(".side.right span:last-child", () => card.right.text ?? card.right, v => card.right = { ...(typeof card.right === "object" ? card.right : {}), text: v });
   } else if (card.type === "quote") {
     one(".q", () => card.text, v => card.text = v);
+  } else if (card.type === "outro") {
+    // 出處卡（Human 2026-07-15 要求可編）。改的是 source 本身——顯示與紀錄同一份。
+    // 作者一欄只在「素材本來就有作者」時存在：沒有的不能無中生有（出處紅線：不准編）。
+    one(".src", () => S.hl.source.title, v => S.hl.source.title = v);
+    if (S.hl.source.author) one(".meta", () => S.hl.source.author, v => S.hl.source.author = v);
+    one(".url", () => S.hl.source.url || "", v => S.hl.source.url = v);
+    one(".handle", () => S.cfg.handle || "", v => {
+      S.cfg.handle = v.startsWith("@") ? v : "@" + v;
+      $("#handle").value = S.cfg.handle;
+      api("/api/config", S.cfg).catch(() => {});   // 帳號存設定，不進 highlights
+    });
   }
   return m;
 }
@@ -612,8 +635,9 @@ function cellFor(card, idx) {
 function btn(bar, label, fn) { const b = document.createElement("button"); b.className = "ghost"; b.textContent = label; b.onclick = fn; bar.appendChild(b); }
 function swap(a, i, j) { [a[i], a[j]] = [a[j], a[i]]; }
 function refreshCell(cell, card, idx) {
-  const fresh = cellFor(card, idx);
-  cell.replaceWith(fresh);
+  const shot = cell.querySelector(".shot");
+  if (shot && shot.redrawCard) { shot.redrawCard(card); return; }   // 原地重畫，不閃
+  cell.replaceWith(cellFor(card, idx));                              // 保險絲：沒有就整格重建
 }
 
 /* 結尾卡那格：出處開關住在這裡。
@@ -621,7 +645,14 @@ function refreshCell(cell, card, idx) {
 function outroCell(p) {
   const cell = document.createElement("div"); cell.className = "cell";
   if (!p.original) {
-    cell.appendChild(cardFrame({ type:"outro" }, { editable:false }));
+    const card = { type:"outro" };
+    let shotRef;
+    shotRef = cardFrame(card, {
+      editable: true,
+      onEdit: () => { markDirty(); shotRef.redrawCard(card); },
+      onRestore: () => shotRef.redrawCard(card),
+    });
+    cell.appendChild(shotRef);
   } else {
     const ph = document.createElement("div");
     ph.style.cssText = "aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:13px;text-align:center;line-height:1.9";
@@ -731,7 +762,7 @@ async function saveCaption() {
 ===================================================================== */
 function openPublishModal() {
   if (!S.slug) return toast("先挑一篇素材");
-  const destHint = `發布暫存/${S.slug}-p${S.pi}/`;
+  const destHint = `暫存/${S.slug}-p${S.pi}/`;
   openModal(`
     <h3>發布</h3>
     <div class="p">半自動：瀏覽器開站、圖片就位、文案已貼——<b>最後的「分享」由你按</b>。
@@ -740,8 +771,7 @@ function openPublishModal() {
       <button class="pri" id="pubIG">發布到 IG</button>
       <button class="pri" id="pubTH">發布到 Threads</button>
     </div>
-    <div class="p" style="margin-top:16px"><b>輸出到本地資料夾</b>（發布失效時的保險）：
-    圖片照發文順序重新命名（01.png…）＋ IG 與 Threads 兩版文案 txt。</div>
+    <div class="p" style="margin-top:16px"><b>輸出到本地資料夾</b></div>
     <div class="p" style="margin-top:6px">輸出位置：<code id="pubDest" style="font-size:12.5px">專案資料夾/${esc(destHint)}</code></div>
     <div class="setbtns"><button id="pubLocal">輸出到資料夾（完成後自動開啟）</button><span class="tiny" id="pubSt"></span></div>
     <div class="btns"><button onclick="closeModal()">關閉</button></div>`);
@@ -954,12 +984,7 @@ function frameInto(container, card, widthPx) {
     f.style.height = h + "px";
   };
 }
-function renderIG() {
-  const stage = $("#stage"); stage.innerHTML = "";
-  const cards = deckCards();
-  const pj = S.posts[String(S.pi)];
-  const cap = S.cap || (pj ? splitCaption(pj) : null);
-  const text = cap ? joinCaption(cap, true) : "（還沒有文案——按「出圖＋文案」產生初稿）";
+function _igPhone(cards, text) {
   const FOLD = 125;
   const phone = document.createElement("div"); phone.className = "phone";
   phone.innerHTML = `
@@ -991,17 +1016,10 @@ function renderIG() {
     const m = $(".more", capEl); if (m) m.onclick = () => renderCap(true);
   };
   renderCap(false);
-  stage.appendChild(phone);
-  const note = document.createElement("div"); note.className = "simNote";
-  note.textContent = "IG 動態的折疊線在 125 字——「更多」之前的字是唯一保證會被讀到的。";
-  stage.appendChild(note);
+  return phone;
 }
-function renderThreads() {
-  const stage = $("#stage"); stage.innerHTML = "";
-  const cards = deckCards();
-  const pj = S.posts[String(S.pi)];
-  const cap = S.cap || (pj ? splitCaption(pj) : null);
-  const text = cap ? joinCaption(cap, false) : "（還沒有文案——按「出圖＋文案」產生初稿）";  // Threads：無 hashtag
+
+function _threadsPhone(cards, text) {
   const over = text.length > 500;
   const phone = document.createElement("div"); phone.className = "phone dark";
   phone.innerHTML = `
@@ -1013,10 +1031,28 @@ function renderThreads() {
     </div></div>`;
   const imgs = $(".th-imgs", phone);
   cards.forEach(c => { const fr = document.createElement("div"); fr.className = "fr"; fr.dataset.ratio = S.cfg.ratio; imgs.appendChild(fr); frameInto(fr, c, 190); });
-  stage.appendChild(phone);
-  const note = document.createElement("div"); note.className = "simNote";
-  note.textContent = "Threads 單欄、不帶 hashtag；上限 500 字，超過標紅。";
-  stage.appendChild(note);
+  return phone;
+}
+
+/* IG 與 Threads 並排在同一頁（Human 2026-07-15）——一眼對照兩個平台的長相 */
+function renderSim() {
+  const stage = $("#stage"); stage.innerHTML = "";
+  const cards = deckCards();
+  const pj = S.posts[String(S.pi)];
+  const cap = S.cap || (pj ? splitCaption(pj) : null);
+  const igText = cap ? joinCaption(cap, true) : "（還沒有文案——按「發布」會自動出圖＋寫初稿）";
+  const thText = cap ? joinCaption(cap, false) : "（還沒有文案——按「發布」會自動出圖＋寫初稿）";
+  const row = document.createElement("div"); row.className = "simrow";
+  const igCol = document.createElement("div");
+  igCol.innerHTML = `<div class="simhead">Instagram</div>`;
+  igCol.appendChild(_igPhone(cards, igText));
+  igCol.insertAdjacentHTML("beforeend", `<div class="simNote">折疊線 125 字——「更多」之前是唯一保證會被讀到的。</div>`);
+  const thCol = document.createElement("div");
+  thCol.innerHTML = `<div class="simhead">Threads</div>`;
+  thCol.appendChild(_threadsPhone(cards, thText));
+  thCol.insertAdjacentHTML("beforeend", `<div class="simNote">單欄、無 hashtag；上限 500 字，超過標紅。</div>`);
+  row.appendChild(igCol); row.appendChild(thCol);
+  stage.appendChild(row);
 }
 
 /* =====================================================================
@@ -1482,32 +1518,36 @@ function renderTabs() {
     t.appendChild(del);
   }
 
-  const re = document.createElement("button"); re.className = "ghost"; re.textContent = "🤖 重新起草…";
-  re.style.marginLeft = "10px";
-  re.onclick = () => openSuggest("redraft");
-  t.appendChild(re);
+  if (S.view === "edit") {   // 重新起草是編輯的事，模擬頁不放
+    const re = document.createElement("button"); re.className = "ghost"; re.textContent = "🤖 重新起草…";
+    re.style.marginLeft = "10px";
+    re.onclick = () => openSuggest("redraft");
+    t.appendChild(re);
+  }
 
-  // 右端：視圖切換＋發布（發布收成一顆鍵，按了再展開選項）
-  const sel = document.createElement("div"); sel.id = "viewSel";
-  [["edit","編輯"],["ig","IG 模擬"],["th","Threads 模擬"]].forEach(([v, label]) => {
+}
+
+/* 編輯／模擬／發布——放頂欄帳號右邊（Human 2026-07-15） */
+function syncViews() {
+  const box = $("#viewBtns");
+  box.innerHTML = "";
+  [["edit","編輯"],["sim","模擬"]].forEach(([v, label]) => {
     const b = document.createElement("button");
     b.textContent = label; b.className = S.view === v ? "on" : "";
     b.onclick = () => { S.view = v; renderAll(); };
-    sel.appendChild(b);
+    box.appendChild(b);
   });
-  const pub = document.createElement("button"); pub.className = "pri"; pub.textContent = "發布";
+  const pub = document.createElement("button"); pub.textContent = "發布";
   pub.onclick = openPublishModal;
-  sel.appendChild(pub);
-  t.appendChild(sel);
+  box.appendChild(pub);
 }
 
 function renderAll() {
-  renderSide(); renderTabs();
+  renderSide(); renderTabs(); syncViews();
   if (S.view === "settings") { renderSettings(); return; }
   if (!S.hl) return;
   if (S.view === "edit") renderEdit();
-  else if (S.view === "ig") renderIG();
-  else renderThreads();
+  else renderSim();
 }
 async function openArticle(slug) {
   try {
@@ -1520,9 +1560,15 @@ async function openArticle(slug) {
 /* =====================================================================
    topbar：主題／比例／handle／出圖
 ===================================================================== */
+// 主題清單的單一事實來源（card.css 要有對應的 [data-theme=…] token 組；測試釘住一致性）
+const THEMES = [
+  ["a", "編輯大字"], ["b", "深色螢光"], ["c", "雜誌黑白"], ["d", "奶油暖調"], ["e", "藍圖"],
+];
 function syncTop() {
-  $("#ta").className = S.cfg.theme === "a" ? "on" : "";
-  $("#tb").className = S.cfg.theme === "b" ? "on" : "";
+  const sel = $("#themeSel");
+  sel.innerHTML = THEMES.map(([k, name]) => `<option value="${k}">${name}</option>`).join("");
+  sel.value = S.cfg.theme;
+  sel.onchange = () => setCfg({ theme: sel.value });
   $("#r1").className = S.cfg.ratio === "1x1" ? "on" : "";
   $("#r2").className = S.cfg.ratio === "4x5" ? "on" : "";
   $("#handle").value = S.cfg.handle;
@@ -1533,8 +1579,6 @@ async function setCfg(patch) {
   if (S.hl) renderAll();     // 出圖是純函式：換主題／比例只是重畫，不可能弄丟東西
   try { await api("/api/config", S.cfg); } catch (e) { /* 設定存不進去不擋人 */ }
 }
-$("#ta").onclick = () => setCfg({ theme: "a" });
-$("#tb").onclick = () => setCfg({ theme: "b" });
 $("#r1").onclick = () => setCfg({ ratio: "1x1" });
 $("#r2").onclick = () => setCfg({ ratio: "4x5" });
 let hT = null;

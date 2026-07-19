@@ -179,10 +179,12 @@ def delete_article(slug: str) -> str:
 def export_local(slug: str, post_index: int) -> Path:
     """把一則貼文輸出到本地暫存資料夾——發布失效時的保險。
 
-    `發布暫存/<slug>-p<N>/`：
+    `暫存/<slug>-p<N>/`：
       01.png、02.png…       照 post.json 的 image_paths 順序重新命名（發文時照序拖）
       文案_IG.txt            含 hashtag
-      文案_Threads.txt       無 hashtag
+      文案_Threads.txt       無 hashtag（Threads 的 # 只是純文字，不放）
+      建議話題.txt           給 Threads 話題標籤用（一則只能掛一個；獨立成檔，
+                             整檔複製文案時才不會把它一起貼進貼文）
     重複輸出就整個覆蓋（它是暫存區，不是檔案庫）。
     """
     import shutil
@@ -192,7 +194,7 @@ def export_local(slug: str, post_index: int) -> Path:
 
     pj = read_json("post", post_path(slug, post_index))
     base = post_dir(slug, post_index)
-    dest = PROJECT_ROOT / "發布暫存" / f"{slug}-p{post_index}"
+    dest = PROJECT_ROOT / "暫存" / f"{slug}-p{post_index}"
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
@@ -210,6 +212,10 @@ def export_local(slug: str, post_index: int) -> Path:
         (dest / "文案_IG.txt").write_text(ig["caption"], encoding="utf-8")
     if th:
         (dest / "文案_Threads.txt").write_text(th["caption"], encoding="utf-8")
+    # Threads 的話題標籤（一則只能掛一個）：從 IG hashtag 挑第一個當建議，發文時手動選
+    tags = (ig or {}).get("hashtags") or []
+    if th and tags:
+        (dest / "建議話題.txt").write_text(tags[0].lstrip("#"), encoding="utf-8")
     return dest
 
 

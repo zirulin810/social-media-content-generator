@@ -1,9 +1,9 @@
 {
   "generation": {
     "posts_max": 3,
-    "cards_max": 6,
+    "cards_max": 18,
     "cards_target": "4–5",
-    "point_body_target": 130,
+    "point_body_target": 80,
     "point_body_max": 180,
     "steps_max": 6,
     "steps_step_target": 25,
@@ -12,7 +12,7 @@
     "contrast_side_max": 120,
     "quote_max": 40,
     "hook_target": 25,
-    "title_max": 24,
+    "title_max": 60,
     "angle_max": 30,
     "cover_hook_max": 70,
     "summary_max_items": 7,

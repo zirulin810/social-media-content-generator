@@ -44,7 +44,9 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "contrast_side_max": 120,
         "quote_max": 40,           # 金句上限（金句卡字級最大，這是最緊的一格）
         "hook_target": 25,         # 文案 hook 的目標字數（硬上限永遠是 IG 折疊線 125）
-        "title_max": 24,           # 卡片標題上限（point／steps／contrast 共用）
+        "title_max": 60,           # 卡片標題上限（point／steps／contrast 共用）。
+                                   # 24 是**編輯目標**（prompt 管），不是牆——標題長了版面會縮字級。
+                                   # 2026-07-15 Human 在編輯台被 24 擋下，把牆移回物理極限。
         "angle_max": 30,           # 封面標題（angle）上限
         "cover_hook_max": 70,      # 封面副標（hook）上限
         "summary_max_items": 7,    # summary 最多幾條（下限固定 3）
@@ -83,11 +85,15 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     },
 }
 
+# 平台推導值：**檔案裡存了也不理**。cards_max＝輪播 20 − 封面 − 出處卡，
+# 是平台的數字不是人的偏好——早期版本曾把它存進 settings.json（當時出廠 6），
+# 不鎖的話那個凍住的 6 會永遠蓋掉後來的 18。
+_PLATFORM_LOCKED = {("generation", "cards_max")}
+
 # 各欄位的合法範圍（(section, key): (min, max)）。**擋的是打錯字，不是品味**——
 # 範圍給得很寬，數字合不合理由人自己負責。
 _INT_RANGE: dict[tuple[str, str], tuple[int, int]] = {
     ("generation", "posts_max"): (1, 10),
-    ("generation", "cards_max"): (2, 18),   # 下限＝schema minItems 2；上限＝輪播 20 − 封面 − 出處卡
     ("generation", "point_body_target"): (10, 2000),
     ("generation", "point_body_max"): (10, 2000),
     ("generation", "steps_max"): (2, 12),
@@ -151,7 +157,7 @@ def load() -> dict[str, Any]:
     for section, values in raw.items():
         if section in data and isinstance(values, dict):
             for k, v in values.items():
-                if k in data[section]:
+                if k in data[section] and (section, k) not in _PLATFORM_LOCKED:
                     data[section][k] = v
     return data
 

@@ -114,10 +114,12 @@ def test_export_local_renames_in_publish_order(tmp_path, monkeypatch) -> None:
 
     dest = export_local("t", 1)
     try:
+        assert dest.parent.name == "暫存"
         names = sorted(x.name for x in dest.iterdir())
-        assert names == ["01.png", "02.png", "03.png", "文案_IG.txt", "文案_Threads.txt"]
+        assert names == ["01.png", "02.png", "03.png", "建議話題.txt", "文案_IG.txt", "文案_Threads.txt"]
         assert (dest / "文案_IG.txt").read_text(encoding="utf-8").startswith("IG 文案")
         assert "#" not in (dest / "文案_Threads.txt").read_text(encoding="utf-8")
+        assert (dest / "建議話題.txt").read_text(encoding="utf-8") == "a"  # 第一個 hashtag 去掉 #
         # 重複輸出＝覆蓋，不堆疊
         dest2 = export_local("t", 1)
         assert dest2 == dest and sorted(x.name for x in dest.iterdir()) == names

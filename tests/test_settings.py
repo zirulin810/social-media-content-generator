@@ -62,17 +62,17 @@ def test_defaults_without_file() -> None:
 
 def test_unknown_keys_are_ignored() -> None:
     settings.path().write_text(
-        json.dumps({"generation": {"cards_max": 5, "no_such_knob": 99}, "junk": 1}),
+        json.dumps({"generation": {"quote_max": 35, "no_such_knob": 99}, "junk": 1}),
         encoding="utf-8")
     loaded = settings.load()
-    assert loaded["generation"]["cards_max"] == 5
+    assert loaded["generation"]["quote_max"] == 35
     assert "no_such_knob" not in loaded["generation"]
 
 
 def test_bad_values_are_rejected_with_named_fields() -> None:
     with pytest.raises(PipelineError) as e:
-        settings.save({"generation": {"cards_max": 1}})       # 低於 schema 的 minItems 2
-    assert "cards_max" in e.value.message
+        settings.save({"generation": {"posts_max": 0}})       # 至少要產出一則
+    assert "posts_max" in e.value.message
     with pytest.raises(PipelineError) as e:
         settings.save({"generation": {"point_body_target": 500, "point_body_max": 100}})
     assert "point_body_target" in e.value.message              # 目標 > 上限
@@ -82,25 +82,34 @@ def test_bad_values_are_rejected_with_named_fields() -> None:
 
 
 def test_schema_follows_settings_without_restart() -> None:
-    """把卡數上限改成 4 → 第 5 張卡被擋。改回去 → 又過。**中間沒有重啟。**"""
-    five = _hl(5)
-    validate("highlights", five)                               # 預設上限 6：5 張合法
+    """把金句上限改小 → 原本合法的金句被擋。改回去 → 又過。**中間沒有重啟。**"""
+    h = _hl(3)
+    h["posts"][0]["cards"].append({"type": "quote", "text": "一句十二個字的金句啊啊啊",
+                                   "verbatim": False,
+                                   "evidence": [{"para_index": 0, "source_text": "這是一段測試素材"}]})
+    validate("highlights", copy.deepcopy(h))                   # 預設上限 40：合法
 
-    settings.save({"generation": {"cards_max": 4}})
+    settings.save({"generation": {"quote_max": 10}})
     with pytest.raises(PipelineError) as e:
-        validate("highlights", copy.deepcopy(five))
-    assert "cards" in e.value.message
+        validate("highlights", copy.deepcopy(h))
+    assert "quote" in e.value.message or "text" in e.value.message
 
-    settings.save({"generation": {"cards_max": 6}})
-    validate("highlights", copy.deepcopy(five))                # 快取確實失效重建
+    settings.save({"generation": {"quote_max": 40}})
+    validate("highlights", copy.deepcopy(h))                   # 快取確實失效重建
+
+
+def test_platform_derived_cards_max_ignores_stale_files() -> None:
+    """cards_max 是平台推導值：早期存進檔案的 6 不准蓋掉現在的 18。"""
+    settings.path().write_text('{"generation": {"cards_max": 6}}', encoding="utf-8")
+    assert settings.gen("cards_max") == 18
 
 
 def test_prompt_follows_settings() -> None:
     from src.analyze.extract_highlights import build_prompt
-    settings.save({"generation": {"steps_step_target": 33, "cards_max": 4, "cards_target": "3"}})
+    settings.save({"generation": {"steps_step_target": 33, "cards_target": "3"}})
     prompt = build_prompt(ARTICLE)
     assert "目標 33 字" in prompt
-    assert "2–4 張" in prompt and "目標 3 張" in prompt
+    assert "目標 3 張" in prompt and "2–18 張" in prompt        # cards_max 是平台值，鎖 18
     assert "{steps_step_target}" not in prompt                 # 變數要全部填掉
 
 

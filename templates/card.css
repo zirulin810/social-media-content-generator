@@ -158,3 +158,118 @@ ol.steps li { display:flex; gap: calc(var(--fs) * .36); align-items:flex-start;
 .outro .meta { font-size: calc(var(--fs) * .55); color: var(--ink-soft); line-height:1.6; margin-top: 14px; }
 .outro .url { font-family: var(--font-ui); font-size: calc(var(--fs) * .42); color: var(--ink-mute); margin-top: 20px; word-break: break-all; }
 .outro .handle { margin-top:auto; font-family: var(--font-ui); font-size: calc(var(--fs) * .7); font-weight: 800; color: var(--accent); }
+
+
+/* ==================================================================
+   4:5 直式平衡（2026-07-15 Human：「4:5 的排版好醜」）
+
+   病根：卡片是 flex column、footer 用 margin-top:auto 撐底，內容頂錨。
+   1080 高剛好；1350 高就露出一大塊下腹。
+   修法：直式時讓主內容上下 auto margin——多出來的空間對半分，
+   眉標在上、署名在下、內容置中。1:1 完全不動。
+================================================================== */
+body[data-ratio="4x5"] .card > .body { margin-top: auto !important; margin-bottom: auto; }
+body[data-ratio="4x5"] .card { padding-top: 8%; padding-bottom: 8%; }
+/* 封面：kicker＋分隔線在上，主題句群置中（有大數字時跟著群組走） */
+body[data-ratio="4x5"] .cover .stat { margin-top: auto; }
+body[data-ratio="4x5"] .cover > .angle { margin-top: auto; }
+body[data-ratio="4x5"] .cover .stat + .angle { margin-top: 20px; }
+body[data-ratio="4x5"] .cover .hook { margin-bottom: auto; }
+
+/* ==================================================================
+   主題 C／D／E（2026-07-15，[[圖卡版型與卡型擴充]]）
+
+   跟 A/B 同一套規矩：只定 token 與少量結構色；字級一律交給 autofit；
+   強調色是「重點的專屬語言」，步驟號碼與 ✓✗ 用中性的結構色。
+   好不好看由 Human 決定——這裡只負責把選項做出來。
+================================================================== */
+
+/* ---------- 主題 C：雜誌黑白（純白底、粗黑無襯線、紅底反白重點、黑色 kicker 色塊）
+   第一版做成「襯線＋淺底」，跟主題 A 根本沒兩樣（Human 2026-07-15 抓到）——
+   重做成瑞士報導風：跟 A 的差異一眼就要看得出來。 ---------- */
+[data-theme="c"] {
+  --bg:        #FFFFFF;
+  --ink:       #0B0B0C;
+  --ink-soft:  #3F434A;
+  --ink-mute:  #9AA1AB;
+  --accent:    #E4231F;
+  --rule:      rgba(11,11,12,.9);
+  --hi-bg:     #E4231F;
+  --hi-ink:    #FFFFFF;
+  --chip-bg:   #0B0B0C;
+  --chip-ink:  #FFFFFF;
+  --chip-line: #0B0B0C;
+  --ok-bg:     #0B0B0C;
+  --ok-ink:    #FFFFFF;
+  --no-bg:     #E4231F;
+  --no-ink:    #FFFFFF;
+  --font:      "Noto Sans TC", "PingFang TC", sans-serif;
+  --font-ui:   var(--font);
+  --pad:       9%;
+}
+/* kicker＝黑色色塊反白（結構，不碰紅色）；分隔線改粗黑條——報導感的骨架 */
+[data-theme="c"] .kicker {
+  color: var(--bg); background: var(--ink);
+  padding: .35em .7em; display: inline-block; letter-spacing: .2em;
+}
+[data-theme="c"] .kickrow .kicker { align-self: flex-start; }
+[data-theme="c"] .cover .rule { height: 8px; background: var(--ink); }
+[data-theme="c"] .title { letter-spacing: .01em; }
+[data-theme="c"] mark { font-weight: 800; padding: 0 .22em; }
+
+/* ---------- 主題 D：奶油暖調（米黃底、焦糖強調、螢光改暖黃底） ---------- */
+[data-theme="d"] {
+  --bg:        #FBF3E4;
+  --ink:       #3B2F23;
+  --ink-soft:  #6E5E4B;
+  --ink-mute:  #AC9D87;
+  --accent:    #C75B39;
+  --rule:      rgba(59,47,35,.16);
+  --hi-bg:     #FFDF9E;
+  --hi-ink:    #3B2F23;
+  --chip-bg:   #F1E5CD;
+  --chip-ink:  #3B2F23;
+  --chip-line: #E3D4B7;
+  --ok-bg:     #E7EFDC;
+  --ok-ink:    #4F7A34;
+  --no-bg:     #F8E2DA;
+  --no-ink:    #B4502E;
+  --font:      "Noto Sans TC", "PingFang TC", sans-serif;
+  --font-ui:   var(--font);
+  --pad:       9%;
+}
+
+/* ---------- 主題 E：藍圖（深藍底、青綠螢光、工程感） ---------- */
+[data-theme="e"] {
+  --bg:        #0E2438;
+  --ink:       #EAF2FA;
+  --ink-soft:  #A9C0D6;
+  --ink-mute:  #5E7C97;
+  --accent:    #4FD1C5;
+  --rule:      rgba(234,242,250,.12);
+  --hi-bg:     #4FD1C5;
+  --hi-ink:    #0E2438;
+  --chip-bg:   #1A3651;
+  --chip-ink:  #EAF2FA;
+  --chip-line: #2C4A68;
+  --ok-bg:     #143829;
+  --ok-ink:    #7BE8A3;
+  --no-bg:     #3A1F24;
+  --no-ink:    #FF8A7A;
+  --font:      "Noto Sans TC", "PingFang TC", sans-serif;
+  --font-ui:   var(--font);
+  --pad:       9%;
+}
+
+/* C/D/E 的結構色（步驟號碼、對照標籤）：中性、語意化，不碰強調色——跟 B 的教訓同一條 */
+[data-theme="c"] .num, [data-theme="d"] .num, [data-theme="e"] .num {
+  background: var(--chip-bg); color: var(--chip-ink); border: 1px solid var(--chip-line);
+}
+[data-theme="c"] .vs .wrong .lab, [data-theme="d"] .vs .wrong .lab, [data-theme="e"] .vs .wrong .lab {
+  color: var(--no-ink); background: var(--no-bg);
+}
+[data-theme="c"] .vs .right .lab, [data-theme="d"] .vs .right .lab, [data-theme="e"] .vs .right .lab {
+  color: var(--ok-ink); background: var(--ok-bg);
+}
+[data-theme="c"] .vs .wrong, [data-theme="d"] .vs .wrong, [data-theme="e"] .vs .wrong { color: var(--ink-soft); }
+[data-theme="c"] .vs .right, [data-theme="d"] .vs .right, [data-theme="e"] .vs .right { color: var(--ink); }

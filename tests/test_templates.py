@@ -182,7 +182,7 @@ def test_no_hardcoded_colors_outside_the_token_blocks() -> None:
     import re
 
     css = (PROJECT_ROOT / "templates" / "card.css").read_text(encoding="utf-8")
-    # 砍掉 token 定義區（[data-theme="x"] { ... } 的那兩塊），剩下的地方不准出現色碼
-    body = re.sub(r'\[data-theme="[ab]"\]\s*\{[^}]*\}', "", css, flags=re.S)
+    # 砍掉 token 定義區（[data-theme="…"] { ... }，任何主題），剩下的地方不准出現色碼
+    body = re.sub(r'\[data-theme="[a-z]"\]\s*\{[^}]*\}', "", css, flags=re.S)
     leaked = re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)", body)
     assert not leaked, f"寫死的顏色（應該用 var(--token)）：{leaked}"
